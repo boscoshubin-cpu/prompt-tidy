@@ -1,0 +1,11 @@
+{
+  "name": "@prompt-tidy/extension",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@prompt-tidy/transformer": "0.1.0",
+    "preact": "^10.0.0"
+  },
+  "scripts": { "build": "vite build --config vite.config.ts" }
+}
