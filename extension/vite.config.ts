@@ -10,8 +10,7 @@ export default defineConfig({
       formats: ["iife"],
       name: "PromptTidyContent",
       fileName: () => "content.js"
-    },
-    rollupOptions: { output: { inlineDynamicImports: true } }
+    }
   },
   plugins: [{
     name: "copy-manifest",
