@@ -20,6 +20,19 @@ describe("chatGptAdapter", () => {
     expect(chatGptAdapter.readDraft(composer!)).toBe("分析这个项目");
   });
 
+  it("ignores competing inputs outside a semantic ChatGPT composer form", () => {
+    document.body.innerHTML = `
+      <form data-type="settings">
+        <div contenteditable="true" role="textbox" aria-label="Message">Unrelated editor</div>
+      </form>
+      <form data-type="composer"><textarea>ChatGPT draft</textarea></form>
+      <form><textarea aria-label="Message">Unrelated textarea</textarea></form>`;
+
+    const composer = chatGptAdapter.findComposer();
+
+    expect(chatGptAdapter.readDraft(composer!)).toBe("ChatGPT draft");
+  });
+
   it("falls back to a textarea inside the message form", () => {
     document.body.innerHTML = `
       <form data-type="composer"><textarea>Fallback draft</textarea></form>
@@ -31,18 +44,78 @@ describe("chatGptAdapter", () => {
     expect(chatGptAdapter.readDraft(composer!)).toBe("Fallback draft");
   });
 
-  it("preserves paragraphs when reading a contenteditable draft", () => {
+  it("reads breaks, paragraphs, and nested block nodes deterministically", () => {
     document.body.innerHTML = `
       <form data-type="composer">
-        <div contenteditable="true" role="textbox"><p>First paragraph</p><p>Second paragraph</p></div>
+        <div contenteditable="true" role="textbox">
+          <section><p>First paragraph<br>Second line</p><div>Third paragraph</div></section>
+          <p>Fourth paragraph</p>
+        </div>
       </form>`;
 
     const composer = chatGptAdapter.findComposer();
 
-    expect(chatGptAdapter.readDraft(composer!)).toBe("First paragraph\nSecond paragraph");
+    expect(chatGptAdapter.readDraft(composer!)).toBe(
+      "First paragraph\nSecond line\nThird paragraph\nFourth paragraph"
+    );
   });
 
-  it("replaces a contenteditable draft, emits change events, and focuses it", () => {
+  it("replaces a contenteditable draft with typed input events and focuses it", () => {
+    document.body.innerHTML = `
+      <form data-type="composer">
+        <div id="composer" contenteditable="true" role="textbox">Original draft</div>
+      </form>`;
+    const composer = document.querySelector<HTMLElement>("#composer")!;
+    const events: Array<{
+      bubbles: boolean;
+      cancelable: boolean;
+      data: string | null | undefined;
+      inputType: string | undefined;
+      type: string;
+    }> = [];
+    let draftAtBeforeInput = "";
+
+    for (const type of ["beforeinput", "input", "change"]) {
+      document.body.addEventListener(type, (event) => {
+        if (event.type === "beforeinput") {
+          draftAtBeforeInput = chatGptAdapter.readDraft(composer);
+        }
+        const inputEvent = event as InputEvent;
+        events.push({
+          bubbles: event.bubbles,
+          cancelable: event.cancelable,
+          data: inputEvent.data,
+          inputType: inputEvent.inputType,
+          type: event.type
+        });
+      });
+    }
+
+    chatGptAdapter.replaceDraft(composer, "Tidied draft");
+
+    expect(composer.textContent).toBe("Tidied draft");
+    expect(draftAtBeforeInput).toBe("Original draft");
+    expect(events).toEqual([
+      {
+        bubbles: true,
+        cancelable: true,
+        data: "Tidied draft",
+        inputType: "insertText",
+        type: "beforeinput"
+      },
+      {
+        bubbles: true,
+        cancelable: false,
+        data: "Tidied draft",
+        inputType: "insertText",
+        type: "input"
+      },
+      { bubbles: true, cancelable: false, data: undefined, inputType: undefined, type: "change" }
+    ]);
+    expect(document.activeElement).toBe(composer);
+  });
+
+  it("does not replace a draft when beforeinput is cancelled", () => {
     document.body.innerHTML = `
       <form data-type="composer">
         <div id="composer" contenteditable="true" role="textbox">Original draft</div>
@@ -50,15 +123,28 @@ describe("chatGptAdapter", () => {
     const composer = document.querySelector<HTMLElement>("#composer")!;
     const events: string[] = [];
 
-    document.body.addEventListener("beforeinput", (event) => events.push(event.type));
-    document.body.addEventListener("input", (event) => events.push(event.type));
-    document.body.addEventListener("change", (event) => events.push(event.type));
+    composer.addEventListener("beforeinput", (event) => {
+      events.push(event.type);
+      event.preventDefault();
+    });
+    composer.addEventListener("input", (event) => events.push(event.type));
+    composer.addEventListener("change", (event) => events.push(event.type));
 
-    chatGptAdapter.replaceDraft(composer, "Tidied draft");
+    expect(() => chatGptAdapter.replaceDraft(composer, "Tidied draft")).toThrow(ReplacementError);
+    expect(chatGptAdapter.readDraft(composer)).toBe("Original draft");
+    expect(events).toEqual(["beforeinput"]);
+  });
 
-    expect(composer.textContent).toBe("Tidied draft");
-    expect(events).toEqual(["beforeinput", "input", "change"]);
-    expect(document.activeElement).toBe(composer);
+  it("verifies multiline contenteditable replacement with the same DOM-to-text reader", () => {
+    document.body.innerHTML = `
+      <form data-type="composer">
+        <div id="composer" contenteditable="true" role="textbox">Original draft</div>
+      </form>`;
+    const composer = document.querySelector<HTMLElement>("#composer")!;
+
+    chatGptAdapter.replaceDraft(composer, "First line\nSecond line");
+
+    expect(chatGptAdapter.readDraft(composer)).toBe("First line\nSecond line");
   });
 
   it("throws when a textarea write cannot be verified", () => {
@@ -75,10 +161,11 @@ describe("chatGptAdapter", () => {
     expect(() => chatGptAdapter.replaceDraft(composer, "Tidied draft")).toThrow(ReplacementError);
   });
 
-  it("returns a composer control container outside the editable region", () => {
+  it("uses only a group with a composer submit control as a mount point", () => {
     document.body.innerHTML = `
       <form data-type="composer">
         <div contenteditable="true" role="textbox">Draft</div>
+        <div role="group"><button type="button">Emoji</button></div>
         <div id="composer-controls" role="group"><button type="submit">Send</button></div>
       </form>`;
     const composer = chatGptAdapter.findComposer()!;
@@ -87,5 +174,16 @@ describe("chatGptAdapter", () => {
 
     expect(mountPoint?.id).toBe("composer-controls");
     expect(composer.contains(mountPoint)).toBe(false);
+  });
+
+  it("returns null when a composer has no narrow safe mount point", () => {
+    document.body.innerHTML = `
+      <form data-type="composer">
+        <div contenteditable="true" role="textbox">Draft</div>
+        <div role="group"><button type="button">Emoji</button></div>
+      </form>`;
+    const composer = chatGptAdapter.findComposer()!;
+
+    expect(chatGptAdapter.findMountPoint(composer)).toBeNull();
   });
 });
