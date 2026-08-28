@@ -1,0 +1,85 @@
+import fc from "fast-check";
+import { describe, expect, it } from "vitest";
+import { validateFidelity } from "./fidelity";
+import { transform } from "./index";
+import { protectSpans } from "./protect";
+
+function criticalMultiset(input: string): string[] {
+  return protectSpans(input).spans
+    .map(({ category, value }) => `${category}\u0000${value}`)
+    .sort();
+}
+
+describe("validateFidelity", () => {
+  it.each([
+    ["Keep 42 rows", "Keep rows", "number"],
+    ["不要删除附件", "删除附件", "negation"],
+    ["Open https://example.com", "Open the site", "url"],
+    ["Run `npm test`", "Run tests", "inline_code"]
+  ])("blocks replacement when %s loses critical content", (before, after, category) => {
+    const protectedDoc = protectSpans(before);
+    const warnings = validateFidelity(before, after, protectedDoc.spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({
+      code: "critical_content_missing",
+      severity: "error",
+      category
+    }));
+  });
+
+  it("accepts reordered exact critical values", () => {
+    const before = "Keep 42 rows, open https://example.com, then run `npm test`.";
+    const after = "Run `npm test`, open https://example.com, then keep 42 rows.";
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toEqual([]);
+  });
+
+  it("treats duplicate critical values as a multiset", () => {
+    const before = "Keep 42 rows and 42 columns.";
+    const after = "Keep 42 rows.";
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
+  });
+
+  it("keeps user values out of fidelity diagnostics", () => {
+    const before = "Open https://example.com/private-token";
+    const warnings = validateFidelity(before, "Open the site", protectSpans(before).spans);
+
+    expect(warnings.every(({ message }) => !message.includes("private-token"))).toBe(true);
+  });
+});
+
+describe("fidelity invariant", () => {
+  const safeSegment = fc.array(fc.constantFrom("a", "b", "c", "d", "e", "f"), {
+    minLength: 1,
+    maxLength: 8
+  }).map((characters) => characters.join(""));
+
+  it("preserves exact critical multisets, removes tokens, and is idempotent", () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 9_999 }), { minLength: 1, maxLength: 4 }),
+        fc.array(safeSegment, { minLength: 1, maxLength: 3 }),
+        fc.array(safeSegment, { minLength: 1, maxLength: 3 }),
+        (numbers, urlPaths, clauseObjects) => {
+          const urls = urlPaths.map((path) => `https://example.com/${path}`);
+          const negations = clauseObjects.map((object) => `must not delete ${object}`);
+          const input = [
+            `Keep ${numbers.join(" and ")} rows.`,
+            `Open ${urls.join(" and ")}.`,
+            `${negations.join("; ")}.`
+          ].join(" ");
+          const options = { mode: "compact", locale: "en" } as const;
+          const result = transform(input, options);
+
+          expect(criticalMultiset(result.output)).toEqual(criticalMultiset(input));
+          expect(result.output).not.toContain("\uE000prompt-tidy-");
+          expect(transform(result.output, options).output).toBe(result.output);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});

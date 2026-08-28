@@ -4,5 +4,5 @@
   "type": "module",
   "private": true,
   "exports": "./src/index.ts",
-  "scripts": { "test": "vitest run src" }
+  "scripts": { "test": "vitest run --root ../.. packages/transformer/src" }
 }
