@@ -22,6 +22,9 @@ export interface ProtectedDocument {
   spans: readonly ProtectedSpan[];
 }
 
+/** Source shared with fidelity validation for bounded negation markers. */
+export const NEGATION_MARKER_SOURCE = "不要|不得|禁止|\\bmust\\s+not\\b|\\bdo\\s+not\\b|\\bdon['’]t\\b|\\bnever\\b";
+
 /**
  * Raised when a rewrite has removed a placeholder that was required for
  * verbatim restoration.
@@ -67,7 +70,10 @@ const SPAN_RULES: readonly SpanRule[] = [
   { category: "quote", pattern: /“[^”\r\n]*”|「[^」\r\n]*」|《[^》\r\n]*》|(?<!\w)"[^"\r\n]*"|(?<!\w)'[^'\r\n]*'(?!\w)/gu },
   {
     category: "constraint",
-    pattern: /(?:不要|必须)[^，,。.!！？?；;:\n]*|(?:must\s+not|must|only)\b[^.,!?;:\n]*/giu
+    pattern: new RegExp(
+      `(?:${NEGATION_MARKER_SOURCE}|必须|\\bmust\\b|\\bonly\\b)[^，,。.!！？?；;:\\n]*`,
+      "giu"
+    )
   },
   { category: "number", pattern: /\b\d+(?:[.,]\d+)?\b/g }
 ];

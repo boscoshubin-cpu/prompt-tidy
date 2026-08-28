@@ -1,9 +1,14 @@
-import { protectSpans, type ProtectedCategory, type ProtectedSpan } from "./protect";
+import {
+  NEGATION_MARKER_SOURCE,
+  protectSpans,
+  type ProtectedCategory,
+  type ProtectedSpan
+} from "./protect";
 import type { TransformWarning } from "./types";
 
 type CriticalCategory = ProtectedCategory | "negation";
 
-const NEGATION_PATTERN = /不要|不得|禁止|must\s+not|do\s+not|don't|never/giu;
+const NEGATION_PATTERN = new RegExp(NEGATION_MARKER_SOURCE, "giu");
 
 function negationMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();

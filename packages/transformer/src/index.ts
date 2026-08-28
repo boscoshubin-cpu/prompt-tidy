@@ -7,6 +7,7 @@ import {
   protectSpans,
   restoreSpans,
   UnresolvedProtectedSpanError,
+  NEGATION_MARKER_SOURCE,
   type ProtectedSpan,
   type ProtectedDocument
 } from "./protect";
@@ -62,8 +63,7 @@ function addExplicitConstraintMarkers(
 
     if (beforeToken.slice(clauseStart).trim() !== "") continue;
 
-    const isConstraint = /^(?:不要|不得|禁止)/u.test(span.value)
-      || /^(?:must not|only)\b/iu.test(span.value);
+    const isConstraint = new RegExp(`^(?:${NEGATION_MARKER_SOURCE}|\\bonly\\b)`, "iu").test(span.value);
     const marker = locale === "en"
       ? isConstraint ? "Constraints: " : "Requirements: "
       : isConstraint ? "约束：" : "要求：";

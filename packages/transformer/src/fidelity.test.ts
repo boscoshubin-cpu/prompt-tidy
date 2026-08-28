@@ -59,6 +59,15 @@ describe("validateFidelity", () => {
     expect(warnings).toContainEqual(expect.objectContaining({ category: "constraint", severity: "error" }));
   });
 
+  it.each([
+    ["Do not delete invoices.", "Do not delete records."],
+    ["禁止删除附件。", "禁止删除记录。"]
+  ])("rejects %s when its negation marker remains but the operand changes", (before, after) => {
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "constraint", severity: "error" }));
+  });
+
   it("keeps user values out of fidelity diagnostics", () => {
     const before = "Open https://example.com/private-token";
     const warnings = validateFidelity(before, "Open the site", protectSpans(before).spans);

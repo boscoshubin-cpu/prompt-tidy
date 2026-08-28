@@ -73,6 +73,20 @@ describe("protected spans", () => {
     expect(restoreSpans(rewritten, protectedDoc.spans)).toBe(input);
   });
 
+  it.each([
+    ["Do not delete invoices.", "Do not delete invoices"],
+    ["DON'T delete invoices.", "DON'T delete invoices"],
+    ["Never delete invoices.", "Never delete invoices"],
+    ["不得删除附件。", "不得删除附件"],
+    ["禁止删除附件。", "禁止删除附件"]
+  ])("protects the complete negated clause %s", (input, expected) => {
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "constraint").map(({ value }) => value)).toEqual([
+      expected
+    ]);
+  });
+
   it("round-trips literal private-use placeholder-looking input", () => {
     const input = "Keep prompt-tidy-looks-like-a-token and `code` unchanged.";
     const protectedDoc = protectSpans(input);
