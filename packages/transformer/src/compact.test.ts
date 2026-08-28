@@ -55,10 +55,38 @@ describe("compact mode", () => {
     );
   });
 
+  it.each(["Help me", "Help me with this."])("preserves meaningful English request: %s", (input) => {
+    expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
   it("leaves code-only input byte-for-byte unchanged", () => {
     const input = "```\n  npm test -- --runInBand\n```";
 
     expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
+  it("retains nested-list indentation", () => {
+    const input = "- parent\n  - child";
+
+    expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
+  it("retains list indentation adjacent to a protected code block", () => {
+    const input = "Use this:\n```ts\n  const total = 3;\n```\n  - nested note";
+
+    expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
+  it("preserves Chinese sentence separators with automatic locale", () => {
+    expect(transform("请完成。然后提交。", { mode: "compact", locale: "auto" }).output).toBe(
+      "请完成。然后提交。"
+    );
+  });
+
+  it("preserves non-leading Chinese 分析一下", () => {
+    const input = "我们需要分析一下这个项目。";
+
+    expect(transform(input, { mode: "compact", locale: "zh" }).output).toBe(input);
   });
 
   it("is idempotent after compacting", () => {

@@ -3,12 +3,11 @@ import type { RewriteStageResult } from "./normalize";
 
 const ZH_PREFIX_RULES = [
   /^(?:就是说|然后呢)[，,\s]*/u,
-  /^(?:我想让你|请你|麻烦你)(?:帮我)?/u
+  /^(?:我想让你|请你|麻烦你)(?:帮我)?[，, \t]*/u
 ] as const;
 
 const EN_PREFIX_RULES = [
-  /^(?:could you please|please)\s+/iu,
-  /^(?:help me to|help me)(?:[,\s]+|$)/iu
+  /^(?:could you please|please)\s+(?:(?:help me to|help me)[,\s]+)?(?:basically[,\s]+)?(?=(?:summarize|analyze|rewrite|draft|create|list|explain|compare|translate|review|give|provide|write)\b)/iu
 ] as const;
 
 function applyLeadingRules(text: string, rules: readonly RegExp[]): { text: string; removed: boolean } {
@@ -29,7 +28,7 @@ function cleanupPunctuation(text: string): string {
     .replace(/^(?:[,;:]\s*)+/u, "")
     .replace(/[ \t]+([,.;!?])/gu, "$1")
     .replace(/([,;:])(?:\s*[,;:])+/gu, "$1")
-    .replace(/([,;:])\s+/gu, "$1 ");
+    .replace(/([,;:])[ \t]+/gu, "$1 ");
 }
 
 function compactChinese(text: string): { text: string; removed: boolean } {
@@ -39,7 +38,7 @@ function compactChinese(text: string): { text: string; removed: boolean } {
   // These phrases are only removed in their conversational positions, rather
   // than through a free-standing substring replacement.
   result = result.replace(/([，,])然后呢[，,\s]*/gu, "$1");
-  result = result.replace(/分析一下(?=(?:这个|此|该))/gu, "分析");
+  result = result.replace(/^分析一下(?=(?:这个|此|该))/u, "分析");
   result = result.replace(
     /([，,])给我(?=[一二三四五六七八九十]+(?:个)?(?:步骤|要点|建议))/gu,
     "$1给出"
@@ -63,7 +62,7 @@ function compactEnglish(text: string): { text: string; removed: boolean } {
   return { text: result, removed };
 }
 
-function deduplicateLine(line: string, locale: Locale): { text: string; removed: boolean } {
+function deduplicateLine(line: string): { text: string; removed: boolean } {
   const clauses = line.match(/[^。！？!?.]+[。！？!?.]?/gu);
   if (!clauses) return { text: line, removed: false };
 
@@ -78,18 +77,18 @@ function deduplicateLine(line: string, locale: Locale): { text: string; removed:
       removed = true;
       continue;
     }
-    kept.push(normalizedClause);
+    kept.push(clause);
     previous = normalizedClause;
   }
 
-  return { text: kept.join(locale === "zh" ? "" : " "), removed };
+  return { text: removed ? kept.join("") : line, removed };
 }
 
-function deduplicateAdjacentClauses(text: string, locale: Locale): { text: string; removed: boolean } {
+function deduplicateAdjacentClauses(text: string): { text: string; removed: boolean } {
   const lines = text.split("\n");
   let removed = false;
   const deduplicated = lines.map((line) => {
-    const result = deduplicateLine(line, locale);
+    const result = deduplicateLine(line);
     if (result.removed) removed = true;
     return result.text;
   });
@@ -108,7 +107,7 @@ export function compactText(text: string, locale: Locale): RewriteStageResult {
           const english = compactEnglish(chinese.text);
           return { text: english.text, removed: chinese.removed || english.removed };
         })();
-  const deduplicated = deduplicateAdjacentClauses(compacted.text, locale);
+  const deduplicated = deduplicateAdjacentClauses(compacted.text);
   const changes: ChangeSummary[] = [];
 
   if (compacted.removed) {
