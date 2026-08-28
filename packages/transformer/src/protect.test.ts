@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import {
+  UnresolvedProtectedSpanError,
+  protectSpans,
+  restoreSpans,
+  type ProtectedCategory
+} from "./protect";
+
+describe("protected spans", () => {
+  it.each<[ProtectedCategory, string]>([
+    ["code_block", "Run ```\nnpm test\n``` now"],
+    ["inline_code", "Run `npm test` now"],
+    ["url", "Open https://example.com/a?q=1"],
+    ["email", "Reply to hi@example.com"],
+    ["path", "Read /Users/yanxi/report.md"],
+    ["date", "Due 2026-08-28"],
+    ["price", "Budget is ¥199.00"],
+    ["number", "Return exactly 42 rows"],
+    ["quote", "保留“这段原文” and \"this quote\""],
+    ["constraint", "不要删除数字，必须保留链接; only keep this; must not change it"]
+  ])("round-trips %s spans", (_category, input) => {
+    const protectedDoc = protectSpans(input);
+
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+    expect(protectedDoc.spans.some((span) => span.category === _category)).toBe(true);
+  });
+
+  it("retains exact values and protects structured values before their numeric pieces", () => {
+    const input = "https://example.com/a?q=1, 2026-08-28, ¥199.00, 42";
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.map((span) => [span.category, span.value])).toEqual([
+      ["url", "https://example.com/a?q=1"],
+      ["date", "2026-08-28"],
+      ["price", "¥199.00"],
+      ["number", "42"]
+    ]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("round-trips literal private-use placeholder-looking input", () => {
+    const input = "Keep prompt-tidy-looks-like-a-token and `code` unchanged.";
+    const protectedDoc = protectSpans(input);
+
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+    expect(protectedDoc.text).toContain("prompt-tidy-looks-like-a-token");
+  });
+
+  it("uses a distinct nonce for each protected document", () => {
+    const first = protectSpans("`one`");
+    const second = protectSpans("`two`");
+
+    expect(first.spans[0]?.token).toBeDefined();
+    expect(second.spans[0]?.token).toBeDefined();
+    expect(first.spans[0]?.token).not.toBe(second.spans[0]?.token);
+  });
+
+  it("throws a typed error when a protected token is missing", () => {
+    const protectedDoc = protectSpans("Keep `npm test`.");
+    const transformed = protectedDoc.text.replace(protectedDoc.spans[0]?.token ?? "", "");
+
+    expect(() => restoreSpans(transformed, protectedDoc.spans)).toThrow(
+      UnresolvedProtectedSpanError
+    );
+    expect(() => restoreSpans(transformed, protectedDoc.spans)).toThrow(/protected span/iu);
+  });
+
+  it("does not restore unrelated placeholder-looking text", () => {
+    const protectedDoc = protectSpans("Keep `npm test`.");
+    const unrelated = "prompt-tidy-other-document-0";
+
+    expect(restoreSpans(`${unrelated} ${protectedDoc.text}`, protectedDoc.spans)).toBe(
+      `${unrelated} Keep \`npm test\`.`
+    );
+  });
+});
