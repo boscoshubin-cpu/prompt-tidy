@@ -66,6 +66,49 @@ describe("structured mode", () => {
     ].join("\n"));
   });
 
+  it("keeps a standalone English header active for protected requirement lines", () => {
+    expect(
+      transform("Requirements:\nMust use plain language.\nUse accessible examples.\nAudience: College students.", {
+        mode: "structured",
+        locale: "en"
+      }).output
+    ).toBe([
+      "## Audience",
+      "College students.",
+      "",
+      "## Requirements",
+      "- Must use plain language.",
+      "- Use accessible examples."
+    ].join("\n"));
+  });
+
+  it("keeps a standalone Chinese header active for non-Must requirement lines", () => {
+    expect(
+      transform("要求：\n使用通俗语言。\n受众：\n大学生。", {
+        mode: "structured",
+        locale: "zh"
+      }).output
+    ).toBe([
+      "## 受众",
+      "大学生。",
+      "",
+      "## 要求",
+      "- 使用通俗语言。"
+    ].join("\n"));
+  });
+
+  it("uses explicit English labels for headings with Han content in auto locale", () => {
+    expect(
+      transform("Task: 分析项目。 Audience: 大学生。", { mode: "structured", locale: "auto" }).output
+    ).toBe([
+      "## Task",
+      "分析项目。",
+      "",
+      "## Audience",
+      "大学生。"
+    ].join("\n"));
+  });
+
   it("keeps unclassified sentences in Task", () => {
     expect(
       transform("Analyze the pilot. Keep the scope narrow. Audience: College students.", {

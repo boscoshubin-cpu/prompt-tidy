@@ -2,10 +2,12 @@ import type { RewriteStageResult } from "./normalize";
 import type { ChangeSummary, Locale } from "./types";
 
 type Section = "task" | "background" | "audience" | "requirements" | "constraints" | "output";
+type HeadingLocale = "zh" | "en";
 
 interface Marker {
   section: Section;
   pattern: RegExp;
+  language: HeadingLocale;
 }
 
 const SECTION_ORDER: readonly Section[] = [
@@ -18,21 +20,21 @@ const SECTION_ORDER: readonly Section[] = [
 ];
 
 const ZH_MARKERS: readonly Marker[] = [
-  { section: "task", pattern: /^(?:任务(?:是|为)?|请(?:你)?(?:帮我)?|帮我)[：:，,\s]*/u },
-  { section: "background", pattern: /^(?:背景信息|背景)(?:是|为)?[：:，,\s]*/u },
-  { section: "audience", pattern: /^(?:目标用户|面向|受众)(?:是|为)?[：:，,\s]*/u },
-  { section: "requirements", pattern: /^(?:要求|需求)(?:是|为)?[：:，,\s]*/u },
-  { section: "constraints", pattern: /^(?:约束|限制)(?:是|为)?[：:，,\s]*/u },
-  { section: "output", pattern: /^(?:输出格式|格式)(?:是|为)?[：:，,\s]*/u }
+  { section: "task", pattern: /^(?:任务(?:是|为)?|请(?:你)?(?:帮我)?|帮我)[：:，,\s]*/u, language: "zh" },
+  { section: "background", pattern: /^(?:背景信息|背景)(?:是|为)?[：:，,\s]*/u, language: "zh" },
+  { section: "audience", pattern: /^(?:目标用户|面向|受众)(?:是|为)?[：:，,\s]*/u, language: "zh" },
+  { section: "requirements", pattern: /^(?:要求|需求)(?:是|为)?[：:，,\s]*/u, language: "zh" },
+  { section: "constraints", pattern: /^(?:约束|限制)(?:是|为)?[：:，,\s]*/u, language: "zh" },
+  { section: "output", pattern: /^(?:输出格式|格式)(?:是|为)?[：:，,\s]*/u, language: "zh" }
 ];
 
 const EN_MARKERS: readonly Marker[] = [
-  { section: "task", pattern: /^(?:task|objective|goal)\s*:\s*/iu },
-  { section: "background", pattern: /^(?:background|context)\s*:\s*/iu },
-  { section: "audience", pattern: /^(?:target audience|audience)\s*:\s*/iu },
-  { section: "requirements", pattern: /^(?:requirements?|needs?)\s*:\s*/iu },
-  { section: "constraints", pattern: /^(?:constraints?|limitations?)\s*:\s*/iu },
-  { section: "output", pattern: /^(?:output format|format|deliverable)\s*:\s*/iu }
+  { section: "task", pattern: /^(?:task|objective|goal)\s*:\s*/iu, language: "en" },
+  { section: "background", pattern: /^(?:background|context)\s*:\s*/iu, language: "en" },
+  { section: "audience", pattern: /^(?:target audience|audience)\s*:\s*/iu, language: "en" },
+  { section: "requirements", pattern: /^(?:requirements?|needs?)\s*:\s*/iu, language: "en" },
+  { section: "constraints", pattern: /^(?:constraints?|limitations?)\s*:\s*/iu, language: "en" },
+  { section: "output", pattern: /^(?:output format|format|deliverable)\s*:\s*/iu, language: "en" }
 ];
 
 const ZH_HEADINGS: Record<Section, string> = {
@@ -67,10 +69,17 @@ function markersFor(locale: Locale): readonly Marker[] {
   return [...ZH_MARKERS, ...EN_MARKERS];
 }
 
-function classifyClause(clause: string, locale: Locale): { section: Section; content: string } | undefined {
+function classifyClause(
+  clause: string,
+  locale: Locale
+): { section: Section; content?: string; language: HeadingLocale } | undefined {
   const zhOutput = clause.match(/^请用(.+?)输出([。！？!?])?$/u);
   if (zhOutput?.[1]) {
-    return { section: "output", content: `使用${zhOutput[1]}${zhOutput[2] ?? ""}` };
+    return {
+      section: "output",
+      content: `使用${zhOutput[1]}${zhOutput[2] ?? ""}`,
+      language: "zh"
+    };
   }
 
   for (const marker of markersFor(locale)) {
@@ -78,7 +87,7 @@ function classifyClause(clause: string, locale: Locale): { section: Section; con
     if (!match) continue;
 
     const content = trimClause(clause.slice(match[0].length));
-    if (content !== "") return { section: marker.section, content };
+    return { section: marker.section, content: content === "" ? undefined : content, language: marker.language };
   }
 
   return undefined;
@@ -94,14 +103,31 @@ function isBulleted(section: Section): boolean {
  */
 export function structureText(text: string, locale: Locale): RewriteStageResult {
   const sections = new Map<Section, string[]>();
+  let activeSection: Section | undefined;
+  let markerLanguage: HeadingLocale | undefined;
 
   for (const rawClause of splitClauses(text)) {
     const clause = trimClause(rawClause);
     if (clause === "") continue;
 
     const classified = classifyClause(clause, locale);
-    const section = classified?.section ?? "task";
-    const content = classified?.content ?? clause;
+    if (classified) {
+      markerLanguage ??= classified.language;
+      if (classified.content === undefined) {
+        activeSection = classified.section;
+        continue;
+      }
+
+      const previousActiveSection = activeSection;
+      const values = sections.get(classified.section) ?? [];
+      values.push(classified.content);
+      sections.set(classified.section, values);
+      activeSection = previousActiveSection === classified.section ? previousActiveSection : undefined;
+      continue;
+    }
+
+    const section = activeSection ?? "task";
+    const content = clause;
     const values = sections.get(section) ?? [];
     values.push(content);
     sections.set(section, values);
@@ -109,7 +135,10 @@ export function structureText(text: string, locale: Locale): RewriteStageResult 
 
   if (sections.size < 2) return { text, changes: [] };
 
-  const headings = locale === "en" ? EN_HEADINGS : ZH_HEADINGS;
+  const headingLocale = locale === "auto"
+    ? markerLanguage ?? (/\p{Script=Han}/u.test(text) ? "zh" : "en")
+    : locale;
+  const headings = headingLocale === "en" ? EN_HEADINGS : ZH_HEADINGS;
   const blocks = SECTION_ORDER.flatMap((section) => {
     const values = sections.get(section);
     if (!values || values.length === 0) return [];
