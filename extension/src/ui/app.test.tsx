@@ -1,9 +1,17 @@
 import { fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ComposerAdapter } from "../chatgpt/adapter";
+import { ReplacementError, type ComposerAdapter } from "../chatgpt/adapter";
 import type { ModeStore } from "../settings/mode-store";
 import { App } from "./app";
+
+function panel(): HTMLElement {
+  return document.querySelector<HTMLElement>("[role='dialog']")!;
+}
+
+function replaceButton(): HTMLButtonElement {
+  return panel().querySelector<HTMLButtonElement>("button[data-action='replace']")!;
+}
 
 describe("App", () => {
   afterEach(() => {
@@ -52,5 +60,119 @@ describe("App", () => {
     expect(readDraft).toHaveBeenCalledTimes(1);
     expect(adapter.replaceDraft).not.toHaveBeenCalled();
     expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it("recomputes a mode switch from the unchanged original draft and stores only the mode", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = {
+      get: vi.fn().mockResolvedValue("compact"),
+      set: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+
+    composer.value = "Newer typing must not be used.";
+    fireEvent.click(panel().querySelector<HTMLInputElement>("input[value='structured']")!);
+
+    await vi.waitFor(() => expect(modeStore.set).toHaveBeenCalledWith("structured"));
+    expect(panel().querySelectorAll("pre")[0]?.textContent).toBe("Please write a clear answer.");
+  });
+
+  it("closes a cancelled preview without replacing the draft", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(panel().querySelector("button[data-action='cancel']")!);
+
+    await vi.waitFor(() => expect(document.querySelector("[role='dialog']")).toBeNull());
+    expect(adapter.replaceDraft).not.toHaveBeenCalled();
+  });
+
+  it("replaces only after confirmation, then closes and focuses the composer", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn((target, text) => { target.textContent = text; }),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    expect(adapter.replaceDraft).not.toHaveBeenCalled();
+    fireEvent.click(replaceButton());
+
+    await vi.waitFor(() => expect(adapter.replaceDraft).toHaveBeenCalledTimes(1));
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    expect(document.activeElement).toBe(composer);
+  });
+
+  it("keeps the preview open and preserves the original when the draft changed", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    composer.value = "I typed something newer.";
+    fireEvent.click(replaceButton());
+
+    await vi.waitFor(() => expect(panel().textContent).toContain("输入内容已变化，请重新整理"));
+    expect(adapter.replaceDraft).not.toHaveBeenCalled();
+    expect(replaceButton().disabled).toBe(true);
+  });
+
+  it("leaves the preview open with a local error when replacement verification fails", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(() => { throw new ReplacementError(); }),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(replaceButton());
+
+    await vi.waitFor(() => expect(panel().textContent).toContain("替换失败，原内容已保留"));
+    expect(replaceButton().disabled).toBe(true);
   });
 });
