@@ -1,4 +1,5 @@
 import { copyFile, mkdir } from "node:fs/promises";
+import preact from "@preact/preset-vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -12,11 +13,14 @@ export default defineConfig({
       fileName: () => "content.js"
     }
   },
-  plugins: [{
-    name: "copy-manifest",
-    async closeBundle() {
-      await mkdir("dist", { recursive: true });
-      await copyFile("manifest.json", "dist/manifest.json");
+  plugins: [
+    preact(),
+    {
+      name: "copy-manifest",
+      async closeBundle() {
+        await mkdir("dist", { recursive: true });
+        await copyFile("manifest.json", "dist/manifest.json");
+      }
     }
-  }]
+  ]
 });
