@@ -1,7 +1,9 @@
 import type { TransformOptions, TransformResult } from "./types";
 import { compactText } from "./compact";
+import { buildMetrics } from "./metrics";
 import { normalizeText } from "./normalize";
-import { protectSpans, restoreSpans } from "./protect";
+import { protectSpans, restoreSpans, type ProtectedSpan } from "./protect";
+import { structureText } from "./structured";
 
 export type {
   ChangeKind,
@@ -20,26 +22,65 @@ function resolveLocale(input: string, locale: TransformOptions["locale"]): "zh" 
   return /\p{Script=Han}/u.test(input) ? "auto" : "en";
 }
 
+function addExplicitConstraintMarkers(
+  text: string,
+  spans: readonly ProtectedSpan[],
+  locale: "zh" | "en" | "auto"
+): string {
+  let marked = text;
+
+  for (const span of spans) {
+    if (span.category !== "constraint") continue;
+
+    const tokenIndex = marked.indexOf(span.token);
+    if (tokenIndex < 0) continue;
+    const beforeToken = marked.slice(0, tokenIndex);
+    const clauseStart = Math.max(
+      beforeToken.lastIndexOf("\n"),
+      beforeToken.lastIndexOf("。"),
+      beforeToken.lastIndexOf("！"),
+      beforeToken.lastIndexOf("？"),
+      beforeToken.lastIndexOf("."),
+      beforeToken.lastIndexOf("!"),
+      beforeToken.lastIndexOf("?")
+    ) + 1;
+
+    if (beforeToken.slice(clauseStart).trim() !== "") continue;
+
+    const isConstraint = /^(?:不要|不得|禁止)/u.test(span.value)
+      || /^(?:must not|only)\b/iu.test(span.value);
+    const marker = locale === "en"
+      ? isConstraint ? "Constraints: " : "Requirements: "
+      : isConstraint ? "约束：" : "要求：";
+    marked = `${marked.slice(0, tokenIndex)}${marker}${marked.slice(tokenIndex)}`;
+  }
+
+  return marked;
+}
+
 export function transform(input: string, options: TransformOptions): TransformResult {
-  const estimatedTokens = Math.ceil(input.length / 4);
-  const isCompact = options.mode === "compact";
-  const protectedDoc = isCompact ? protectSpans(input) : undefined;
-  const normalized = protectedDoc ? normalizeText(protectedDoc.text) : undefined;
-  const rewritten = normalized ? compactText(normalized.text, resolveLocale(input, options.locale)) : undefined;
-  const output = protectedDoc && rewritten
-    ? restoreSpans(rewritten.text, protectedDoc.spans)
-    : input;
+  const locale = resolveLocale(input, options.locale);
+  const protectedDoc = protectSpans(input);
+  const normalized = normalizeText(protectedDoc.text);
+  const compacted = compactText(normalized.text, locale);
+  const rewritten = options.mode === "structured"
+    ? structureText(addExplicitConstraintMarkers(compacted.text, protectedDoc.spans, locale), locale)
+    : compacted;
+  const output = restoreSpans(rewritten.text, protectedDoc.spans);
+  const metrics = buildMetrics(input, output);
+  const warnings = metrics.charactersAfter > metrics.charactersBefore
+    ? [{
+        code: "result_longer" as const,
+        severity: "info" as const,
+        message: "The tidied prompt is longer because formatting was added."
+      }]
+    : [];
 
   return {
     output,
-    changes: normalized && rewritten ? [...normalized.changes, ...rewritten.changes] : [],
-    warnings: [],
-    metrics: {
-      charactersBefore: input.length,
-      charactersAfter: input.length,
-      estimatedTokensBefore: estimatedTokens,
-      estimatedTokensAfter: estimatedTokens
-    },
+    changes: [...normalized.changes, ...compacted.changes, ...rewritten.changes],
+    warnings,
+    metrics,
     safeToReplace: true
   };
 }
