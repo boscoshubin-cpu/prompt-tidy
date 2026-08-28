@@ -77,6 +77,14 @@ describe("compact mode", () => {
     expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
   });
 
+  it("retains the code-block newline after removing a Chinese prefix", () => {
+    const input = "请你:\n```ts\n  const total = 3;\n```";
+
+    expect(transform(input, { mode: "compact", locale: "zh" }).output).toBe(
+      "\n```ts\n  const total = 3;\n```"
+    );
+  });
+
   it("preserves Chinese sentence separators with automatic locale", () => {
     expect(transform("请完成。然后提交。", { mode: "compact", locale: "auto" }).output).toBe(
       "请完成。然后提交。"
