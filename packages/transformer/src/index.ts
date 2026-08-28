@@ -73,24 +73,20 @@ function addExplicitConstraintMarkers(
   return marked;
 }
 
-function contentWarnings(
-  input: string,
-  output: string,
-  protectedDocument: ProtectedDocument
-): TransformResult["warnings"] {
-  const remainingContent = protectedDocument.spans.reduce(
+function hasOnlyProtectedContent(protectedDocument: ProtectedDocument): boolean {
+  if (protectedDocument.spans.length === 0) return false;
+
+  return protectedDocument.spans.reduce(
     (text, span) => text.split(span.token).join(""),
     protectedDocument.text
-  ).trim();
+  ).trim() === "";
+}
 
-  if (remainingContent === "") {
-    return [{
-      code: "only_protected_content",
-      severity: "info",
-      message: "The prompt contains only protected content and was left unchanged."
-    }];
-  }
+function safeToReplace(warnings: readonly TransformResult["warnings"][number][]): boolean {
+  return warnings.every((warning) => warning.severity !== "error");
+}
 
+function contentWarnings(input: string, output: string): TransformResult["warnings"] {
   if (output === input) {
     return [{
       code: "nothing_to_tidy",
@@ -103,26 +99,58 @@ function contentWarnings(
 }
 
 function unresolvedSpanResult(input: string): TransformResult {
+  const warnings: TransformResult["warnings"] = [{
+    code: "critical_content_missing",
+    severity: "error",
+    category: "protected_span",
+    message: "A protected content category could not be restored."
+  }];
+
   return {
     output: input,
     changes: [],
-    warnings: [{
-      code: "critical_content_missing",
-      severity: "error",
-      category: "protected_span",
-      message: "A protected content category could not be restored."
-    }],
+    warnings,
     metrics: buildMetrics(input, input),
-    safeToReplace: false
+    safeToReplace: safeToReplace(warnings)
+  };
+}
+
+function unchangedContentResult(
+  input: string,
+  warning: TransformResult["warnings"][number]
+): TransformResult {
+  const warnings = [warning];
+
+  return {
+    output: input,
+    changes: [],
+    warnings,
+    metrics: buildMetrics(input, input),
+    safeToReplace: safeToReplace(warnings)
   };
 }
 
 export function transform(input: string, options: TransformOptions): TransformResult {
   validateInput(input);
 
+  if (input.trim() === "") {
+    return unchangedContentResult(input, {
+      code: "nothing_to_tidy",
+      severity: "info",
+      message: "Nothing to tidy; the prompt was already concise."
+    });
+  }
+
   try {
     const locale = resolveLocale(input, options.locale);
     const protectedDoc = protectSpans(input);
+    if (hasOnlyProtectedContent(protectedDoc)) {
+      return unchangedContentResult(input, {
+        code: "only_protected_content",
+        severity: "info",
+        message: "The prompt contains only protected content and was left unchanged."
+      });
+    }
     const normalized = normalizeText(protectedDoc.text);
     const compacted = compactText(normalized.text, locale);
     const rewritten = options.mode === "structured"
@@ -139,12 +167,14 @@ export function transform(input: string, options: TransformOptions): TransformRe
         }]
       : [];
 
+    const warnings = [...contentWarnings(input, output), ...fidelityWarnings, ...lengthWarnings];
+
     return {
       output,
       changes: [...normalized.changes, ...compacted.changes, ...rewritten.changes],
-      warnings: [...contentWarnings(input, output, protectedDoc), ...fidelityWarnings, ...lengthWarnings],
+      warnings,
       metrics,
-      safeToReplace: fidelityWarnings.every((warning) => warning.severity !== "error")
+      safeToReplace: safeToReplace(warnings)
     };
   } catch (error) {
     if (error instanceof UnresolvedProtectedSpanError) return unresolvedSpanResult(input);

@@ -4,7 +4,6 @@ import type { TransformWarning } from "./types";
 type CriticalCategory = ProtectedCategory | "negation";
 
 const NEGATION_PATTERN = /不要|不得|禁止|must\s+not|do\s+not|don't|never/giu;
-const NEGATION_TEST_PATTERN = /不要|不得|禁止|must\s+not|do\s+not|don't|never/iu;
 
 function negationMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();
@@ -15,10 +14,6 @@ function negationMultiset(text: string): Map<string, number> {
   }
 
   return values;
-}
-
-function containsNegation(value: string): boolean {
-  return NEGATION_TEST_PATTERN.test(value);
 }
 
 function addValue(
@@ -35,31 +30,30 @@ function protectedMultisets(spans: readonly ProtectedSpan[]): Map<CriticalCatego
   const values = new Map<CriticalCategory, Map<string, number>>();
 
   for (const span of spans) {
-    // Negations are compared as their own semantic category below, rather
-    // than requiring the entire surrounding constraint clause verbatim.
-    if (span.category === "constraint" && containsNegation(span.value)) continue;
     addValue(values, span.category, span.value);
   }
 
   return values;
 }
 
-function isMissing(expected: ReadonlyMap<string, number>, actual: ReadonlyMap<string, number>): boolean {
-  return [...expected].some(([value, count]) => (actual.get(value) ?? 0) < count);
+function differs(expected: ReadonlyMap<string, number>, actual: ReadonlyMap<string, number>): boolean {
+  const values = new Set([...expected.keys(), ...actual.keys()]);
+
+  return [...values].some((value) => expected.get(value) !== actual.get(value));
 }
 
-function missingCategories(
+function changedCategories(
   original: string,
   output: string,
   spans: readonly ProtectedSpan[]
 ): CriticalCategory[] {
   const expected = protectedMultisets(spans);
   const actual = protectedMultisets(protectSpans(output).spans);
-  const missing = [...expected]
-    .filter(([category, values]) => isMissing(values, actual.get(category) ?? new Map()))
-    .map(([category]) => category);
+  const protectedCategories = new Set([...expected.keys(), ...actual.keys()]);
+  const missing = [...protectedCategories]
+    .filter((category) => differs(expected.get(category) ?? new Map(), actual.get(category) ?? new Map()));
 
-  if (isMissing(negationMultiset(original), negationMultiset(output))) {
+  if (differs(negationMultiset(original), negationMultiset(output))) {
     missing.push("negation");
   }
 
@@ -75,10 +69,10 @@ export function validateFidelity(
   output: string,
   spans: readonly ProtectedSpan[]
 ): TransformWarning[] {
-  return missingCategories(original, output, spans).map((category) => ({
+  return changedCategories(original, output, spans).map((category) => ({
     code: "critical_content_missing",
     severity: "error",
     category,
-    message: `Critical ${category} content is missing from the transformed prompt.`
+    message: `Critical ${category} content changed during transformation.`
   }));
 }

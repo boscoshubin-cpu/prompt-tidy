@@ -43,6 +43,22 @@ describe("validateFidelity", () => {
     expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
   });
 
+  it("rejects added duplicate critical values", () => {
+    const before = "Keep 42 rows.";
+    const after = "Keep 42 and 42 rows.";
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
+  });
+
+  it("rejects a changed negated constraint even when the negation remains", () => {
+    const before = "Must not delete invoices.";
+    const after = "Must not delete records.";
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "constraint", severity: "error" }));
+  });
+
   it("keeps user values out of fidelity diagnostics", () => {
     const before = "Open https://example.com/private-token";
     const warnings = validateFidelity(before, "Open the site", protectSpans(before).spans);
