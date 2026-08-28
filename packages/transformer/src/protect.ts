@@ -60,12 +60,15 @@ const SPAN_RULES: readonly SpanRule[] = [
   { category: "email", pattern: /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/giu },
   {
     category: "path",
-    pattern: /(?:\/[a-z0-9._~-]+)+(?:\/[a-z0-9._~%-]+)?|[a-z]:[\\/](?:[^\s<>"'“”‘’]+[\\/]?)+/giu
+    pattern: /\/(?:[^\s<>"'“”‘’\/]+\/)*[^\s<>"'“”‘’\/]+|[a-z]:[\\/](?:[^\s<>"'“”‘’]+[\\/]?)+/giu
   },
   { category: "date", pattern: /\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/g },
   { category: "price", pattern: /(?:[¥$€£]\s*\d+(?:[,.]\d+)?|\d+(?:[,.]\d+)?\s*(?:USD|EUR|GBP|CNY|RMB))/giu },
   { category: "quote", pattern: /“[^”\r\n]*”|「[^」\r\n]*」|《[^》\r\n]*》|(?<!\w)"[^"\r\n]*"|(?<!\w)'[^'\r\n]*'(?!\w)/gu },
-  { category: "constraint", pattern: /(?:must\s+not|must|only)\b|不要|必须/giu },
+  {
+    category: "constraint",
+    pattern: /(?:不要|必须)[^，,。.!！？?；;:\n]*|(?:must\s+not|must|only)\b[^.,!?;:\n]*/giu
+  },
   { category: "number", pattern: /\b\d+(?:[.,]\d+)?\b/g }
 ];
 
@@ -92,21 +95,15 @@ function tokenFor(nonce: string, index: number): string {
   return `\uE000prompt-tidy-${nonce}-${index}\uE001`;
 }
 
-function trimTrailingPunctuation(value: string): string {
-  // Sentence punctuation commonly follows URLs and paths. Do not trim '?',
-  // which can be a meaningful final URL query marker.
-  return value.replace(/[.,!;:]+$/u, "");
-}
-
 function findCandidates(input: string): Candidate[] {
   const candidates: Candidate[] = [];
 
   SPAN_RULES.forEach((rule, priority) => {
     for (const match of input.matchAll(rule.pattern)) {
       const rawValue = match[0];
-      const value = rule.category === "url" || rule.category === "path"
-        ? trimTrailingPunctuation(rawValue)
-        : rawValue;
+      // Whitespace immediately before a boundary belongs outside the clause;
+      // all URL/path punctuation remains part of its exact protected value.
+      const value = rule.category === "constraint" ? rawValue.trimEnd() : rawValue;
       if (value.length === 0) continue;
 
       const start = match.index ?? 0;

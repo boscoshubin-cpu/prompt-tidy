@@ -26,7 +26,7 @@ describe("protected spans", () => {
   });
 
   it("retains exact values and protects structured values before their numeric pieces", () => {
-    const input = "https://example.com/a?q=1, 2026-08-28, ¥199.00, 42";
+    const input = "https://example.com/a?q=1 2026-08-28 ¥199.00 42";
     const protectedDoc = protectSpans(input);
 
     expect(protectedDoc.spans.map((span) => [span.category, span.value])).toEqual([
@@ -36,6 +36,41 @@ describe("protected spans", () => {
       ["number", "42"]
     ]);
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("keeps terminal punctuation in URL and path span values", () => {
+    const input = "Open https://example.com/a?q=1. Read /Users/yanxi/report.md!";
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.map(({ category, value }) => [category, value])).toEqual([
+      ["url", "https://example.com/a?q=1."],
+      ["path", "/Users/yanxi/report.md!"]
+    ]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("protects complete Chinese constraint clauses through punctuation boundaries", () => {
+    const input = "不要删除数字，必须保留链接。";
+    const protectedDoc = protectSpans(input);
+    const rewritten = protectedDoc.text.replace("不要删除数字", "改写内容").replace("必须保留链接", "改写内容");
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "constraint").map(({ value }) => value)).toEqual([
+      "不要删除数字",
+      "必须保留链接"
+    ]);
+    expect(restoreSpans(rewritten, protectedDoc.spans)).toBe(input);
+  });
+
+  it("protects complete English constraint clauses through punctuation boundaries", () => {
+    const input = "Only keep links; must not change numbers.";
+    const protectedDoc = protectSpans(input);
+    const rewritten = protectedDoc.text.replace("Only keep links", "rewritten").replace("must not change numbers", "rewritten");
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "constraint").map(({ value }) => value)).toEqual([
+      "Only keep links",
+      "must not change numbers"
+    ]);
+    expect(restoreSpans(rewritten, protectedDoc.spans)).toBe(input);
   });
 
   it("round-trips literal private-use placeholder-looking input", () => {
