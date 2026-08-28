@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Prompt Tidy ChatGPT composer fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>ChatGPT composer fixture</h1>
+      <button id="replace-composer" type="button">Replace composer</button>
+      <section id="composer-host" aria-label="Composer fixture"></section>
+    </main>
+
+    <script>
+      const fixtureEvents = {
+        beaconCalls: [],
+        fetchCalls: [],
+        sendClicks: 0,
+        xhrCalls: []
+      };
+      window.__promptTidyFixtureEvents = fixtureEvents;
+
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (...args) => {
+        fixtureEvents.fetchCalls.push(String(args[0]));
+        return nativeFetch(...args);
+      };
+
+      const nativeXhrOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function (method, url, ...args) {
+        fixtureEvents.xhrCalls.push({ method, url: String(url) });
+        return nativeXhrOpen.call(this, method, url, ...args);
+      };
+
+      navigator.sendBeacon = (url, data) => {
+        fixtureEvents.beaconCalls.push({
+          url: String(url),
+          bytes: typeof data === "string" ? data.length : null
+        });
+        return true;
+      };
+
+      function createComposer() {
+        const form = document.createElement("form");
+        form.dataset.type = "composer";
+        form.setAttribute("aria-label", "ChatGPT composer");
+        form.innerHTML = `
+          <div
+            id="prompt-textarea"
+            contenteditable="true"
+            role="textbox"
+            aria-label="Message ChatGPT"
+          ></div>
+          <div data-testid="composer-footer" role="group" aria-label="Composer actions">
+            <button type="submit" data-testid="send-button">Send</button>
+          </div>
+        `;
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          fixtureEvents.sendClicks += 1;
+        });
+        return form;
+      }
+
+      function replaceComposer() {
+        document.querySelector("#composer-host").replaceChildren(createComposer());
+      }
+
+      document.querySelector("#replace-composer").addEventListener("click", replaceComposer);
+      replaceComposer();
+    </script>
+  </body>
+</html>

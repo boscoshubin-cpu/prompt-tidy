@@ -10,5 +10,5 @@
     "jsxImportSource": "preact",
     "types": ["node", "chrome"]
   },
-  "include": ["packages/**/*.ts", "extension/**/*.ts", "extension/**/*.tsx", "*.ts"]
+  "include": ["packages/**/*.ts", "extension/**/*.ts", "extension/**/*.tsx", "tests/**/*.ts", "*.ts"]
 }
