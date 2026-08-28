@@ -2,7 +2,7 @@ import type { ComposerAdapter } from "./adapter";
 
 export interface ComposerObserverOptions {
   adapter: ComposerAdapter;
-  onComposer: (composer: HTMLElement) => void;
+  onComposer: (composer: HTMLElement) => boolean;
   debounceMs?: number;
 }
 
@@ -23,8 +23,9 @@ export function startComposerObserver({
 
     const composer = adapter.findComposer();
     if (composer && composer.isConnected && composer !== mountedComposer) {
-      mountedComposer = composer;
-      onComposer(composer);
+      if (onComposer(composer)) {
+        mountedComposer = composer;
+      }
     }
   };
 
