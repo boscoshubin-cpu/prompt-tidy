@@ -1,7 +1,7 @@
 import { transform, type TransformMode, type TransformResult } from "@prompt-tidy/transformer";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { ReplacementError, type ComposerAdapter } from "../chatgpt/adapter";
+import type { ComposerAdapter } from "../chatgpt/adapter";
 import type { ModeStore } from "../settings/mode-store";
 import { PreviewPanel } from "./preview-panel";
 
@@ -27,6 +27,8 @@ export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [replacementError, setReplacementError] = useState<string>();
   const tidyButtonRef = useRef<HTMLButtonElement>(null);
+  const tidyRequestGeneration = useRef(0);
+  const modeWrite = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     const updateAvailability = (): void => setCanTidy(hasDraft(adapter, composer));
@@ -35,10 +37,14 @@ export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
   }, [adapter, composer]);
 
   const tidy = async (): Promise<void> => {
+    const requestGeneration = tidyRequestGeneration.current + 1;
+    tidyRequestGeneration.current = requestGeneration;
     const draft = adapter.readDraft(composer);
     if (draft.trim() === "") return;
 
     const mode = await modeStore.get();
+    if (requestGeneration !== tidyRequestGeneration.current) return;
+
     const result = transform(draft, { mode });
     onComputed?.(result);
     setReplacementError(undefined);
@@ -58,7 +64,25 @@ export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
     onComputed?.(result);
     setReplacementError(undefined);
     setPreview({ original: preview.original, result, mode });
-    await modeStore.set(mode);
+    const nextWrite = modeWrite.current
+      .catch(() => undefined)
+      .then(() => modeStore.set(mode));
+    modeWrite.current = nextWrite;
+    await nextWrite;
+  };
+
+  const recoverOriginalDraft = (original: string): string => {
+    try {
+      if (adapter.readDraft(composer) !== original) {
+        adapter.replaceDraft(composer, original);
+      }
+
+      return adapter.readDraft(composer) === original
+        ? "替换失败，原内容已保留"
+        : "替换失败，请复制上方原文手动恢复";
+    } catch {
+      return "替换失败，请复制上方原文手动恢复";
+    }
   };
 
   const replacePreview = (): void => {
@@ -73,12 +97,8 @@ export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
       adapter.replaceDraft(composer, preview.result.output);
       composer.focus();
       closePreview(false);
-    } catch (error) {
-      if (error instanceof ReplacementError) {
-        setReplacementError("替换失败，原内容已保留");
-        return;
-      }
-      setReplacementError("替换失败，原内容已保留");
+    } catch {
+      setReplacementError(recoverOriginalDraft(preview.original));
     }
   };
 

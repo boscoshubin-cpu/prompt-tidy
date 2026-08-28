@@ -13,6 +13,17 @@ function replaceButton(): HTMLButtonElement {
   return panel().querySelector<HTMLButtonElement>("button[data-action='replace']")!;
 }
 
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((finish) => { resolve = finish; });
+  return { promise, resolve };
+}
+
 describe("App", () => {
   afterEach(() => {
     document.body.replaceChildren();
@@ -174,5 +185,126 @@ describe("App", () => {
 
     await vi.waitFor(() => expect(panel().textContent).toContain("替换失败，原内容已保留"));
     expect(replaceButton().disabled).toBe(true);
+  });
+
+  it("verifies and rolls back a partially written ReplacementError before reporting that the original remains", async () => {
+    const original = "Please write a clear answer.";
+    const composer = document.createElement("textarea");
+    composer.value = original;
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn((_target, text) => {
+        if (text === original) {
+          composer.value = original;
+          return;
+        }
+        composer.value = "partially replaced";
+        throw new ReplacementError();
+      }),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(replaceButton());
+
+    await vi.waitFor(() => expect(panel().textContent).toContain("替换失败，原内容已保留"));
+    expect(composer.value).toBe(original);
+    expect(adapter.replaceDraft).toHaveBeenLastCalledWith(composer, original);
+  });
+
+  it("shows manual recovery guidance when a failed replacement cannot be verified or rolled back", async () => {
+    const original = "Please write a clear answer.";
+    const composer = document.createElement("textarea");
+    composer.value = original;
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn((_target, text) => {
+        if (text !== original) composer.value = "partially replaced";
+        throw new ReplacementError();
+      }),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(replaceButton());
+
+    await vi.waitFor(() => expect(panel().textContent).toContain("替换失败，请复制上方原文手动恢复"));
+    expect(replaceButton().disabled).toBe(true);
+    expect(composer.value).toBe("partially replaced");
+  });
+
+  it("serializes rapid mode saves so the final Compact selection wins", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const firstWrite = deferred<void>();
+    const secondWrite = deferred<void>();
+    let storedMode: "compact" | "structured" = "compact";
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = {
+      get: vi.fn().mockResolvedValue("compact"),
+      set: vi.fn((mode) => {
+        const write = mode === "structured" ? firstWrite : secondWrite;
+        return write.promise.then(() => { storedMode = mode; });
+      })
+    };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(panel().querySelector<HTMLInputElement>("input[value='structured']")!);
+    await vi.waitFor(() => expect(modeStore.set).toHaveBeenCalledTimes(1));
+    fireEvent.click(panel().querySelector<HTMLInputElement>("input[value='compact']")!);
+    expect(modeStore.set).toHaveBeenCalledTimes(1);
+
+    firstWrite.resolve(undefined);
+    await vi.waitFor(() => expect(modeStore.set).toHaveBeenCalledTimes(2));
+    secondWrite.resolve(undefined);
+    await vi.waitFor(() => expect(storedMode).toBe("compact"));
+  });
+
+  it("keeps the latest tidy request when async mode reads resolve out of order", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "First draft";
+    document.body.append(composer);
+    const firstRead = deferred<"compact" | "structured">();
+    const secondRead = deferred<"compact" | "structured">();
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = {
+      get: vi.fn().mockReturnValueOnce(firstRead.promise).mockReturnValueOnce(secondRead.promise),
+      set: vi.fn()
+    };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    composer.value = "Second draft";
+    fireEvent.click(container.querySelector("button")!);
+    secondRead.resolve("structured");
+    await vi.waitFor(() => expect(panel().querySelectorAll("pre")[0]?.textContent).toBe("Second draft"));
+
+    firstRead.resolve("compact");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel().querySelectorAll("pre")[0]?.textContent).toBe("Second draft");
+    expect(panel().querySelector<HTMLInputElement>("input[value='structured']")?.checked).toBe(true);
   });
 });
