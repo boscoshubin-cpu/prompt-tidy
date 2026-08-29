@@ -11,5 +11,8 @@
     "run_at": "document_idle",
     "world": "ISOLATED"
   }],
-  "action": { "default_title": "Prompt Tidy" }
+  "action": {
+    "default_title": "Prompt Tidy",
+    "default_popup": "popup.html"
+  }
 }

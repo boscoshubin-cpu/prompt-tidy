@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "build": "npm run build -w @prompt-tidy/extension",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "check:package": "npm run build && node scripts/check-package.mjs"
   },
   "engines": {
     "node": ">=22"
