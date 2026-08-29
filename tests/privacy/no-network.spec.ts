@@ -2,6 +2,7 @@ import { expect, test } from "../e2e/test-extension";
 
 const fixtureUrl = "http://127.0.0.1:4173/chatgpt-composer.html";
 const chineseSample = "帮我分析这个项目。背景是给新手使用。面向大学生。必须用通俗语言。请用表格输出。";
+const postActionObservationMs = 1_000;
 
 test("makes no application network calls while tidying", async ({ context, page }) => {
   await page.goto(fixtureUrl);
@@ -16,9 +17,12 @@ test("makes no application network calls while tidying", async ({ context, page 
     .getByRole("radio", { name: "Structured" })
     .check();
 
-  await expect.poll(() => page.evaluate(() => (
+  await page.waitForTimeout(postActionObservationMs);
+  const fixtureEvents = await page.evaluate(() => (
     window as typeof window & { __promptTidyFixtureEvents: FixtureEvents }
-  ).__promptTidyFixtureEvents)).toEqual({
+  ).__promptTidyFixtureEvents);
+
+  expect(fixtureEvents).toEqual({
     beaconCalls: [],
     fetchCalls: [],
     sendClicks: 0,

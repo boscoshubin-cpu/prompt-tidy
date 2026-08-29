@@ -6,6 +6,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { chromium, expect, test as base, type BrowserContext } from "@playwright/test";
 
 import { projectRoot, testExtensionDir } from "./harness-paths";
+import { withPersistentContext } from "./persistent-context";
 
 interface WorkerFixtures {
   extensionContext: BrowserContext;
@@ -40,12 +41,10 @@ function findChromeForTesting(): string | undefined {
 
 export const test = base.extend<object, WorkerFixtures>({
   extensionContext: [async ({}, use) => {
-    const userDataDir = await mkdtemp(join(tmpdir(), "prompt-tidy-playwright-"));
-    const executablePath = findChromeForTesting();
-    let context: BrowserContext | undefined;
-
-    try {
-      context = await chromium.launchPersistentContext(userDataDir, {
+    await withPersistentContext<BrowserContext>({
+      createUserDataDir: () => mkdtemp(join(tmpdir(), "prompt-tidy-playwright-")),
+      discoverExecutable: findChromeForTesting,
+      launch: (userDataDir, executablePath) => chromium.launchPersistentContext(userDataDir, {
         ...(executablePath
           ? { executablePath }
           : { channel: process.env.PROMPT_TIDY_BROWSER_CHANNEL ?? "chromium" }),
@@ -54,12 +53,9 @@ export const test = base.extend<object, WorkerFixtures>({
           `--disable-extensions-except=${testExtensionDir}`,
           `--load-extension=${testExtensionDir}`
         ]
-      });
-      await use(context);
-    } finally {
-      await context?.close();
-      await rm(userDataDir, { force: true, recursive: true });
-    }
+      }),
+      removeUserDataDir: (userDataDir) => rm(userDataDir, { force: true, recursive: true })
+    }, use);
   }, { scope: "worker" }],
   context: async ({ extensionContext }, use) => {
     await use(extensionContext);

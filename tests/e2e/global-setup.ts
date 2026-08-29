@@ -11,8 +11,20 @@ interface ExtensionManifest {
   content_scripts: Array<{ matches: string[] }>;
 }
 
-export default async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
-  const manifestPath = join(productionExtensionDir, "manifest.json");
+export interface PrepareTestExtensionOptions {
+  productionDir?: string;
+  testDir?: string;
+  copyExtension?(source: string, destination: string): Promise<void>;
+  writeManifest?(path: string, contents: string): Promise<void>;
+}
+
+export async function prepareTestExtension({
+  productionDir = productionExtensionDir,
+  testDir = testExtensionDir,
+  copyExtension = (source, destination) => cp(source, destination, { recursive: true }),
+  writeManifest = (path, contents) => writeFile(path, contents, "utf8")
+}: PrepareTestExtensionOptions = {}): Promise<void> {
+  const manifestPath = join(productionDir, "manifest.json");
   const productionManifest = JSON.parse(await readFile(manifestPath, "utf8")) as ExtensionManifest;
 
   if (
@@ -28,17 +40,32 @@ export default async function globalSetup(_config: FullConfig): Promise<() => Pr
     );
   }
 
-  await rm(testExtensionDir, { force: true, recursive: true });
-  await cp(productionExtensionDir, testExtensionDir, { recursive: true });
+  await rm(testDir, { force: true, recursive: true });
 
-  const testManifest: ExtensionManifest = structuredClone(productionManifest);
-  testManifest.host_permissions.push(fixtureMatch);
-  testManifest.content_scripts[0]?.matches.push(fixtureMatch);
-  await writeFile(
-    join(testExtensionDir, "manifest.json"),
-    `${JSON.stringify(testManifest, null, 2)}\n`,
-    "utf8"
-  );
+  try {
+    await copyExtension(productionDir, testDir);
+    const testManifest: ExtensionManifest = structuredClone(productionManifest);
+    testManifest.host_permissions.push(fixtureMatch);
+    testManifest.content_scripts[0]?.matches.push(fixtureMatch);
+    await writeManifest(
+      join(testDir, "manifest.json"),
+      `${JSON.stringify(testManifest, null, 2)}\n`
+    );
+  } catch (error) {
+    try {
+      await rm(testDir, { force: true, recursive: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Test extension preparation failed and its partial output could not be removed."
+      );
+    }
+    throw error;
+  }
+}
+
+export default async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
+  await prepareTestExtension();
 
   return async () => {
     await rm(testExtensionDir, { force: true, recursive: true });

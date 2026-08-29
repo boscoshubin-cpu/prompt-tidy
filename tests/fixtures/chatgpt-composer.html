@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,">
     <title>Prompt Tidy ChatGPT composer fixture</title>
   </head>
   <body>
@@ -58,6 +59,8 @@
         `;
         form.addEventListener("submit", (event) => {
           event.preventDefault();
+        });
+        form.querySelector("[data-testid='send-button']").addEventListener("click", () => {
           fixtureEvents.sendClicks += 1;
         });
         return form;
