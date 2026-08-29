@@ -11,6 +11,7 @@ export interface MountPromptTidyOptions {
   adapter: ComposerAdapter;
   composer: HTMLElement;
   modeStore: ModeStore;
+  onReplacementFailure?: () => void;
 }
 
 function removePromptTidyRoot(host: HTMLElement): void {
@@ -21,7 +22,12 @@ function removePromptTidyRoot(host: HTMLElement): void {
   host.remove();
 }
 
-export function mountPromptTidy({ adapter, composer, modeStore }: MountPromptTidyOptions): boolean {
+export function mountPromptTidy({
+  adapter,
+  composer,
+  modeStore,
+  onReplacementFailure
+}: MountPromptTidyOptions): boolean {
   const mountPoint = adapter.findMountPoint(composer);
   if (!mountPoint) return false;
 
@@ -42,6 +48,14 @@ export function mountPromptTidy({ adapter, composer, modeStore }: MountPromptTid
   mountPoint.append(host);
   mountedApps.set(host, appRoot);
 
-  render(<App adapter={adapter} composer={composer} modeStore={modeStore} />, appRoot);
+  render(
+    <App
+      adapter={adapter}
+      composer={composer}
+      modeStore={modeStore}
+      onReplacementFailure={onReplacementFailure}
+    />,
+    appRoot
+  );
   return true;
 }

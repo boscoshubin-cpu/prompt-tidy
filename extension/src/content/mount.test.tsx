@@ -73,4 +73,29 @@ describe("mountPromptTidy", () => {
     expect(mountPoint.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
     expect(readDraft).toHaveBeenCalledTimes(1);
   });
+
+  it("forwards a bounded replacement-failure event from the mounted App", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    const mountPoint = document.createElement("div");
+    document.body.append(composer, mountPoint);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      findMountPoint: vi.fn(() => mountPoint),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(() => { throw new Error("synthetic replacement failure"); })
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const onReplacementFailure = vi.fn();
+    const options = { adapter, composer, modeStore, onReplacementFailure };
+
+    expect(mountPromptTidy(options)).toBe(true);
+    const shadowRoot = mountPoint.querySelector<HTMLElement>("[data-prompt-tidy-root='true']")!.shadowRoot!;
+    fireEvent.click(shadowRoot.querySelector<HTMLButtonElement>("button")!);
+    await vi.waitFor(() => expect(shadowRoot.querySelector("[role='dialog']")).toBeTruthy());
+    fireEvent.click(shadowRoot.querySelector<HTMLButtonElement>("button[data-action='replace']")!);
+
+    await vi.waitFor(() => expect(onReplacementFailure).toHaveBeenCalledTimes(1));
+    expect(onReplacementFailure).toHaveBeenCalledWith();
+  });
 });

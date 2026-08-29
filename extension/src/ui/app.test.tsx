@@ -177,7 +177,15 @@ describe("App", () => {
       findMountPoint: vi.fn()
     };
     const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
-    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+    const onReplacementFailure = vi.fn();
+    const { container } = render(
+      <App
+        adapter={adapter}
+        composer={composer}
+        modeStore={modeStore}
+        onReplacementFailure={onReplacementFailure}
+      />
+    );
 
     fireEvent.click(container.querySelector("button")!);
     await vi.waitFor(() => expect(panel()).toBeTruthy());
@@ -185,6 +193,8 @@ describe("App", () => {
 
     await vi.waitFor(() => expect(panel().textContent).toContain("替换失败，原内容已保留"));
     expect(replaceButton().disabled).toBe(true);
+    expect(onReplacementFailure).toHaveBeenCalledTimes(1);
+    expect(onReplacementFailure).toHaveBeenCalledWith();
   });
 
   it("verifies and rolls back a partially written ReplacementError before reporting that the original remains", async () => {

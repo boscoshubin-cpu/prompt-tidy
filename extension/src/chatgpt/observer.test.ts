@@ -47,7 +47,9 @@ describe("startComposerObserver", () => {
     const first = makeComposerFixture();
     document.body.append(first);
     const onComposer = vi.fn(() => true);
-    const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
+    const onComposerMissing = vi.fn();
+    const options = { adapter: chatGptAdapter, onComposer, onComposerMissing, debounceMs: 25 };
+    const stop = startComposerObserver(options);
     await vi.advanceTimersByTimeAsync(25);
 
     const replacement = makeComposerFixture();
@@ -56,6 +58,30 @@ describe("startComposerObserver", () => {
 
     expect(onComposer).toHaveBeenCalledTimes(2);
     expect(onComposer).toHaveBeenLastCalledWith(replacement.querySelector('[role="textbox"]'));
+    expect(onComposerMissing).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("reports a mounted composer missing only after a debounced discovery finds no replacement", async () => {
+    vi.useFakeTimers();
+    const first = makeComposerFixture();
+    document.body.append(first);
+    const onComposer = vi.fn(() => true);
+    const onComposerMissing = vi.fn();
+    const options = { adapter: chatGptAdapter, onComposer, onComposerMissing, debounceMs: 25 };
+    const stop = startComposerObserver(options);
+    await vi.advanceTimersByTimeAsync(25);
+
+    first.remove();
+    await vi.advanceTimersByTimeAsync(24);
+    expect(onComposerMissing).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onComposerMissing).toHaveBeenCalledTimes(1);
+
+    document.body.append(document.createElement("div"));
+    await vi.advanceTimersByTimeAsync(25);
+    expect(onComposerMissing).toHaveBeenCalledTimes(1);
     stop();
   });
 

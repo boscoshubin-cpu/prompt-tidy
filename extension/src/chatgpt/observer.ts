@@ -3,12 +3,14 @@ import type { ComposerAdapter } from "./adapter";
 export interface ComposerObserverOptions {
   adapter: ComposerAdapter;
   onComposer: (composer: HTMLElement) => boolean;
+  onComposerMissing?: () => void;
   debounceMs?: number;
 }
 
 export function startComposerObserver({
   adapter,
   onComposer,
+  onComposerMissing,
   debounceMs = 50
 }: ComposerObserverOptions): () => void {
   let mountedComposer: HTMLElement | null = null;
@@ -16,8 +18,9 @@ export function startComposerObserver({
 
   const discover = (): void => {
     timer = undefined;
+    const mountedComposerDisconnected = mountedComposer !== null && !mountedComposer.isConnected;
 
-    if (mountedComposer && !mountedComposer.isConnected) {
+    if (mountedComposerDisconnected) {
       mountedComposer = null;
     }
 
@@ -26,6 +29,8 @@ export function startComposerObserver({
       if (onComposer(composer)) {
         mountedComposer = composer;
       }
+    } else if (!composer && mountedComposerDisconnected) {
+      onComposerMissing?.();
     }
   };
 

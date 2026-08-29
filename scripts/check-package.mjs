@@ -66,12 +66,22 @@ async function verifyPackage() {
   }
 
   const declaredPermissions = [
-    ...(Array.isArray(manifest.permissions) ? manifest.permissions : []),
-    ...(Array.isArray(manifest.optional_permissions) ? manifest.optional_permissions : [])
+    ...(Array.isArray(manifest.permissions) ? manifest.permissions : [])
   ];
+  if (declaredPermissions.length !== 1 || declaredPermissions[0] !== "storage") {
+    fail("permissions must equal ['storage']");
+  }
   const forbidden = declaredPermissions.filter((permission) => forbiddenPermissions.has(permission));
   if (forbidden.length > 0) {
     fail(`forbidden permission(s): ${forbidden.join(", ")}`);
+  }
+
+  if (manifest.optional_permissions !== undefined) {
+    fail("optional_permissions are forbidden");
+  }
+
+  if (manifest.optional_host_permissions !== undefined) {
+    fail("optional_host_permissions are forbidden");
   }
 
   for (const requiredAsset of ["content.js", "popup.html", "popup.js"]) {

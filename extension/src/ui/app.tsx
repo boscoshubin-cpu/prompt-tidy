@@ -10,6 +10,7 @@ export interface AppProps {
   composer: HTMLElement;
   modeStore: ModeStore;
   onComputed?: (result: TransformResult) => void;
+  onReplacementFailure?: () => void;
 }
 
 interface PreviewState {
@@ -22,7 +23,13 @@ function hasDraft(adapter: ComposerAdapter, composer: HTMLElement): boolean {
   return adapter.readDraft(composer).trim().length > 0;
 }
 
-export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
+export function App({
+  adapter,
+  composer,
+  modeStore,
+  onComputed,
+  onReplacementFailure
+}: AppProps) {
   const [canTidy, setCanTidy] = useState(() => hasDraft(adapter, composer));
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [replacementError, setReplacementError] = useState<string>();
@@ -98,6 +105,7 @@ export function App({ adapter, composer, modeStore, onComputed }: AppProps) {
       composer.focus();
       closePreview(false);
     } catch {
+      onReplacementFailure?.();
       setReplacementError(recoverOriginalDraft(preview.original));
     }
   };
