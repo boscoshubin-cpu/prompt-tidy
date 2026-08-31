@@ -2,7 +2,7 @@ import type { ComposerAdapter } from "./adapter";
 
 export interface ComposerObserverOptions {
   adapter: ComposerAdapter;
-  onComposer: (composer: HTMLElement) => boolean;
+  onComposer: (composer: HTMLElement) => HTMLElement | null;
   onComposerMissing?: () => void;
   debounceMs?: number;
 }
@@ -14,7 +14,16 @@ export function startComposerObserver({
   debounceMs = 50
 }: ComposerObserverOptions): () => void {
   let mountedComposer: HTMLElement | null = null;
+  let mountedHost: HTMLElement | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const mountIsHealthy = (composer: HTMLElement): boolean => {
+    const currentMountPoint = adapter.findMountPoint(composer);
+    return mountedHost !== null
+      && mountedHost.isConnected
+      && currentMountPoint !== null
+      && currentMountPoint.contains(mountedHost);
+  };
 
   const discover = (): void => {
     timer = undefined;
@@ -22,12 +31,21 @@ export function startComposerObserver({
 
     if (mountedComposerDisconnected) {
       mountedComposer = null;
+      mountedHost = null;
     }
 
     const composer = adapter.findComposer();
-    if (composer && composer.isConnected && composer !== mountedComposer) {
-      if (onComposer(composer)) {
-        mountedComposer = composer;
+    if (composer && composer.isConnected) {
+      const composerChanged = composer !== mountedComposer;
+      if (composerChanged || !mountIsHealthy(composer)) {
+        const host = onComposer(composer);
+        if (host?.isConnected) {
+          mountedHost = host;
+          mountedComposer = composer;
+        } else {
+          mountedHost = null;
+          mountedComposer = null;
+        }
       }
     } else if (!composer && mountedComposerDisconnected) {
       onComposerMissing?.();

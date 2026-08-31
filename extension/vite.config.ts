@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     emptyOutDir: true,
+    modulePreload: false,
     outDir: "dist",
     lib: {
       entry: "src/content/index.tsx",

@@ -6,9 +6,11 @@ export interface PreviewPanelProps {
   result: TransformResult;
   mode: TransformMode;
   errorMessage?: string;
+  operationErrorMessage?: string;
   onCancel(): void;
   onModeChange(mode: TransformMode): void;
   onReplace(): void | Promise<void>;
+  onRetryOperation?(): void | Promise<void>;
 }
 
 function hasWarningAcknowledgement(result: TransformResult): boolean {
@@ -27,14 +29,29 @@ function focusableControls(dialog: HTMLElement): HTMLElement[] {
   ));
 }
 
+function activeElementFor(dialog: HTMLElement): Element | null {
+  const root = dialog.getRootNode();
+  return root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+}
+
+function characterChange(before: number, after: number): string {
+  const delta = after - before;
+  const percentage = before === 0 ? 0 : (delta / before) * 100;
+  const deltaLabel = delta > 0 ? `+${delta}` : String(delta);
+  const percentageLabel = percentage > 0 ? `+${percentage.toFixed(1)}` : percentage.toFixed(1);
+  return `变化：${deltaLabel} 字符（${percentageLabel}%）`;
+}
+
 export function PreviewPanel({
   original,
   result,
   mode,
   errorMessage,
+  operationErrorMessage,
   onCancel,
   onModeChange,
-  onReplace
+  onReplace,
+  onRetryOperation
 }: PreviewPanelProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -66,10 +83,11 @@ export function PreviewPanel({
     const last = controls.at(-1);
     if (!first || !last) return;
 
-    if (event.shiftKey && document.activeElement === first) {
+    const activeElement = activeElementFor(dialog);
+    if (event.shiftKey && activeElement === first) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && activeElement === last) {
       event.preventDefault();
       first.focus();
     }
@@ -122,6 +140,7 @@ export function PreviewPanel({
       <p class="prompt-tidy-metrics">
         原始：{result.metrics.charactersBefore} 字符<br />
         结果：{result.metrics.charactersAfter} 字符<br />
+        {characterChange(result.metrics.charactersBefore, result.metrics.charactersAfter)}<br />
         原始：约 {result.metrics.estimatedTokensBefore} Token<br />
         结果：约 {result.metrics.estimatedTokensAfter} Token
       </p>
@@ -146,6 +165,12 @@ export function PreviewPanel({
         </label>
       )}
       {errorMessage && <p role="alert">{errorMessage}</p>}
+      {operationErrorMessage && (
+        <div class="prompt-tidy-operation-error">
+          <p role="alert">{operationErrorMessage}</p>
+          <button type="button" data-action="retry" onClick={() => { void onRetryOperation?.(); }}>重试</button>
+        </div>
+      )}
 
       <div class="prompt-tidy-preview-actions">
         <button type="button" data-action="cancel" onClick={onCancel}>取消</button>

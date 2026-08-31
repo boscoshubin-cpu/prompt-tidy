@@ -66,5 +66,7 @@ export const promptTidyStyles = `
     white-space: pre-wrap;
   }
   .prompt-tidy-metrics, .prompt-tidy-disclaimer { color: var(--prompt-tidy-muted); }
+  .prompt-tidy-operation-error { display: inline-flex; gap: 0.5rem; align-items: center; }
+  .prompt-tidy-operation-error p { color: var(--prompt-tidy-text); margin: 0; }
   .prompt-tidy-preview-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
 `;

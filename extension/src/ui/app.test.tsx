@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReplacementError, type ComposerAdapter } from "../chatgpt/adapter";
 import type { ModeStore } from "../settings/mode-store";
+import { transform } from "@prompt-tidy/transformer";
 import { App } from "./app";
 
 function panel(): HTMLElement {
@@ -131,7 +132,15 @@ describe("App", () => {
       findMountPoint: vi.fn()
     };
     const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
-    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+    const onReplacementSuccess = vi.fn();
+    const { container } = render(
+      <App
+        adapter={adapter}
+        composer={composer}
+        modeStore={modeStore}
+        onReplacementSuccess={onReplacementSuccess}
+      />
+    );
 
     fireEvent.click(container.querySelector("button")!);
     await vi.waitFor(() => expect(panel()).toBeTruthy());
@@ -141,6 +150,7 @@ describe("App", () => {
     await vi.waitFor(() => expect(adapter.replaceDraft).toHaveBeenCalledTimes(1));
     expect(document.querySelector("[role='dialog']")).toBeNull();
     expect(document.activeElement).toBe(composer);
+    expect(onReplacementSuccess).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the preview open and preserves the original when the draft changed", async () => {
@@ -316,5 +326,91 @@ describe("App", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(panel().querySelectorAll("pre")[0]?.textContent).toBe("Second draft");
     expect(panel().querySelector<HTMLInputElement>("input[value='structured']")?.checked).toBe(true);
+  });
+
+  it("shows a local retry when reading the saved mode fails", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = {
+      get: vi.fn().mockRejectedValueOnce(new Error("storage unavailable")).mockResolvedValueOnce("compact"),
+      set: vi.fn()
+    };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(container.querySelector("[role='alert']")?.textContent).toContain("整理失败，请重试"));
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+
+    fireEvent.click(container.querySelector<HTMLButtonElement>("button[data-action='retry']")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    expect(modeStore.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a local retry when an unexpected transform fails", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Please write a clear answer.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const transformDraft = vi.fn()
+      .mockImplementationOnce(() => { throw new Error("synthetic transform failure"); })
+      .mockImplementation(transform);
+    const { container } = render(
+      <App
+        adapter={adapter}
+        composer={composer}
+        modeStore={modeStore}
+        transformDraft={transformDraft}
+      />
+    );
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(container.querySelector("[role='alert']")?.textContent).toContain("整理失败，请重试"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("button[data-action='retry']")!);
+
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    expect(transformDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the computed preview and retries a failed mode preference write", async () => {
+    const composer = document.createElement("textarea");
+    composer.value = "Task: Analyze this project. Audience: College students.";
+    document.body.append(composer);
+    const adapter: ComposerAdapter = {
+      findComposer: vi.fn(),
+      readDraft: vi.fn(() => composer.value),
+      replaceDraft: vi.fn(),
+      findMountPoint: vi.fn()
+    };
+    const modeStore: ModeStore = {
+      get: vi.fn().mockResolvedValue("compact"),
+      set: vi.fn().mockRejectedValueOnce(new Error("storage unavailable")).mockResolvedValueOnce(undefined)
+    };
+    const { container } = render(<App adapter={adapter} composer={composer} modeStore={modeStore} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    await vi.waitFor(() => expect(panel()).toBeTruthy());
+    fireEvent.click(panel().querySelector<HTMLInputElement>("input[value='structured']")!);
+
+    await vi.waitFor(() => expect(container.querySelector("[role='alert']")?.textContent).toContain("模式偏好保存失败，请重试"));
+    expect(panel().querySelector<HTMLInputElement>("input[value='structured']")?.checked).toBe(true);
+    fireEvent.click(container.querySelector<HTMLButtonElement>("button[data-action='retry']")!);
+
+    await vi.waitFor(() => expect(modeStore.set).toHaveBeenCalledTimes(2));
+    expect(modeStore.set).toHaveBeenNthCalledWith(1, "structured");
+    expect(modeStore.set).toHaveBeenNthCalledWith(2, "structured");
+    await vi.waitFor(() => expect(container.querySelector("[role='alert']")).toBeNull());
   });
 });

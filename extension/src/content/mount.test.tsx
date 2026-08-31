@@ -1,7 +1,7 @@
 import { fireEvent } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ComposerAdapter } from "../chatgpt/adapter";
+import { chatGptAdapter, type ComposerAdapter } from "../chatgpt/adapter";
 import { startComposerObserver } from "../chatgpt/observer";
 import type { ModeStore } from "../settings/mode-store";
 import { mountPromptTidy } from "./mount";
@@ -55,7 +55,7 @@ describe("mountPromptTidy", () => {
     };
     const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
 
-    expect(mountPromptTidy({ adapter, composer, modeStore })).toBe(true);
+    expect(mountPromptTidy({ adapter, composer, modeStore })).not.toBeNull();
     await vi.waitFor(() => {
       readDraft.mockClear();
       fireEvent.input(composer);
@@ -63,7 +63,7 @@ describe("mountPromptTidy", () => {
     });
     expect(mountPoint.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
 
-    expect(mountPromptTidy({ adapter, composer, modeStore })).toBe(true);
+    expect(mountPromptTidy({ adapter, composer, modeStore })).not.toBeNull();
     readDraft.mockClear();
     await vi.waitFor(() => {
       fireEvent.input(composer);
@@ -89,7 +89,7 @@ describe("mountPromptTidy", () => {
     const onReplacementFailure = vi.fn();
     const options = { adapter, composer, modeStore, onReplacementFailure };
 
-    expect(mountPromptTidy(options)).toBe(true);
+    expect(mountPromptTidy(options)).not.toBeNull();
     const shadowRoot = mountPoint.querySelector<HTMLElement>("[data-prompt-tidy-root='true']")!.shadowRoot!;
     fireEvent.click(shadowRoot.querySelector<HTMLButtonElement>("button")!);
     await vi.waitFor(() => expect(shadowRoot.querySelector("[role='dialog']")).toBeTruthy());
@@ -97,5 +97,39 @@ describe("mountPromptTidy", () => {
 
     await vi.waitFor(() => expect(onReplacementFailure).toHaveBeenCalledTimes(1));
     expect(onReplacementFailure).toHaveBeenCalledWith();
+  });
+
+  it("remounts into a replacement footer without replacing the composer", async () => {
+    vi.useFakeTimers();
+    const form = document.createElement("form");
+    form.dataset.type = "composer";
+    form.innerHTML = [
+      '<div contenteditable="true" role="textbox">Draft</div>',
+      '<div data-testid="composer-footer"><button type="submit">Send</button></div>'
+    ].join("");
+    document.body.append(form);
+    const composer = form.querySelector<HTMLElement>("[role='textbox']")!;
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const stop = startComposerObserver({
+      adapter: chatGptAdapter,
+      debounceMs: 25,
+      onComposer: (foundComposer) => mountPromptTidy({
+        adapter: chatGptAdapter,
+        composer: foundComposer,
+        modeStore
+      })
+    });
+    await vi.advanceTimersByTimeAsync(25);
+
+    const replacementFooter = document.createElement("div");
+    replacementFooter.dataset.testid = "composer-footer";
+    replacementFooter.innerHTML = '<button type="submit">Send</button>';
+    form.querySelector("[data-testid='composer-footer']")!.replaceWith(replacementFooter);
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(chatGptAdapter.findComposer()).toBe(composer);
+    expect(document.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
+    expect(replacementFooter.querySelector("[data-prompt-tidy-root='true']")).not.toBeNull();
+    stop();
   });
 });

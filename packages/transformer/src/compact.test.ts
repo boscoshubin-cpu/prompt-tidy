@@ -85,6 +85,28 @@ describe("compact mode", () => {
     );
   });
 
+  it("preserves a tilde-fenced block byte-for-byte in Compact mode", () => {
+    const input = "Use this:\n~~~js\n  const total = 1,234.56;\n~~~";
+
+    expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
+  it("preserves relative path separation and a grouped decimal after safe filler removal", () => {
+    const result = transform("Could you please review ./src/app.ts with 1,234.56 rows?", {
+      mode: "compact",
+      locale: "en"
+    });
+
+    expect(result.output).toBe("Review ./src/app.ts with 1,234.56 rows.");
+    expect(result.safeToReplace).toBe(true);
+  });
+
+  it("preserves chained punctuation across a line boundary", () => {
+    const input = "Keep this,\n; keep that.";
+
+    expect(transform(input, { mode: "compact", locale: "en" }).output).toBe(input);
+  });
+
   it("preserves Chinese sentence separators with automatic locale", () => {
     expect(transform("请完成。然后提交。", { mode: "compact", locale: "auto" }).output).toBe(
       "请完成。然后提交。"
@@ -105,5 +127,14 @@ describe("compact mode", () => {
     );
 
     expect(transform(first.output, options).output).toBe(first.output);
+  });
+
+  it("reports each Compact rewrite change only once", () => {
+    const result = transform("Could you please summarize this report?", {
+      mode: "compact",
+      locale: "en"
+    });
+
+    expect(result.changes.filter(({ kind }) => kind === "removed_filler")).toHaveLength(1);
   });
 });

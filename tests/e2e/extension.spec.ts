@@ -46,6 +46,18 @@ test("remounts exactly once when the composer node is replaced", async ({ page }
   await expect(page.getByRole("button", { name: "整理" })).toHaveCount(1);
 });
 
+test("remounts exactly once when only the composer footer is replaced", async ({ page }) => {
+  await page.goto(fixtureUrl);
+  const composer = page.getByRole("textbox", { name: "Message ChatGPT" });
+  await expect(page.locator("[data-prompt-tidy-root='true']")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Replace footer" }).click();
+
+  await expect(composer).toHaveCount(1);
+  await expect(page.locator("[data-prompt-tidy-root='true']")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "整理" })).toHaveCount(1);
+});
+
 test("disables tidying when the draft is empty", async ({ page }) => {
   await page.goto(fixtureUrl);
   await expect(page.getByRole("button", { name: "整理" })).toBeDisabled();

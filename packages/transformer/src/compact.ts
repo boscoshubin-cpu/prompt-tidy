@@ -27,7 +27,7 @@ function cleanupPunctuation(text: string): string {
   return text
     .replace(/^(?:[,;:][ \t]*)+/u, "")
     .replace(/[ \t]+([,.;!?])/gu, "$1")
-    .replace(/([,;:])(?:\s*[,;:])+/gu, "$1")
+    .replace(/([,;:])(?:[ \t]*[,;:])+/gu, "$1")
     .replace(/([,;:])[ \t]+/gu, "$1 ");
 }
 

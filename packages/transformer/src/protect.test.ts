@@ -9,13 +9,17 @@ import {
 describe("protected spans", () => {
   it.each<[ProtectedCategory, string]>([
     ["code_block", "Run ```\nnpm test\n``` now"],
+    ["code_block", "Review\n~~~js\nconst total = 1;\n~~~\nnow"],
     ["inline_code", "Run `npm test` now"],
     ["url", "Open https://example.com/a?q=1"],
     ["email", "Reply to hi@example.com"],
     ["path", "Read /Users/yanxi/report.md"],
+    ["path", "Review ./src/app.ts and ../config/settings.json"],
+    ["path", "Read ~/notes/todo.md and \\\\server\\share\\report.md"],
     ["date", "Due 2026-08-28"],
     ["price", "Budget is ¥199.00"],
     ["number", "Return exactly 42 rows"],
+    ["number", "Keep the grouped decimal 1,234.56"],
     ["quote", "保留“这段原文” and \"this quote\""],
     ["constraint", "不要删除数字，必须保留链接; only keep this; must not change it"]
   ])("round-trips %s spans", (_category, input) => {
@@ -38,6 +42,46 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
+  it("recognizes grouped decimals, grouped prices, and path forms as atomic spans", () => {
+    const input = "Keep 1,234.56 and $1,234.56 in ./src/app.ts, ../config.json, ~/notes/todo.md, and \\\\server\\share\\report.md";
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.map(({ category, value }) => [category, value])).toEqual([
+      ["number", "1,234.56"],
+      ["price", "$1,234.56"],
+      ["path", "./src/app.ts,"],
+      ["path", "../config.json,"],
+      ["path", "~/notes/todo.md,"],
+      ["path", "\\\\server\\share\\report.md"]
+    ]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("protects Markdown backtick and tilde fences using compatible closing lengths", () => {
+    const input = [
+      "````markdown",
+      "```nested```",
+      "````",
+      "",
+      "~~~js",
+      "  const total = 1,234.56;",
+      "~~~~"
+    ].join("\n");
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "code_block").map(({ value }) => value)).toEqual([
+      ["````markdown", "```nested```", "````"].join("\n"),
+      ["~~~js", "  const total = 1,234.56;", "~~~~"].join("\n")
+    ]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("marks an unclosed Markdown fence as ambiguous instead of treating its body as prose", () => {
+    const protectedDoc = protectSpans("Review this:\n~~~js\nconst total = 1,234.56;");
+
+    expect(protectedDoc.issues).toContainEqual(expect.objectContaining({ category: "code_block" }));
+  });
+
   it("keeps terminal punctuation in URL and path span values", () => {
     const input = "Open https://example.com/a?q=1. Read /Users/yanxi/report.md!";
     const protectedDoc = protectSpans(input);
@@ -49,34 +93,40 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
-  it("protects complete Chinese constraint clauses through punctuation boundaries", () => {
+  it("fails restoration when an adversarial rewrite drops a Chinese constraint token", () => {
     const input = "不要删除数字，必须保留链接。";
     const protectedDoc = protectSpans(input);
-    const rewritten = protectedDoc.text.replace("不要删除数字", "改写内容").replace("必须保留链接", "改写内容");
+    const constraint = protectedDoc.spans.find(({ category }) => category === "constraint")!;
+    const rewritten = protectedDoc.text.replace(constraint.token, "改写内容");
 
     expect(protectedDoc.spans.filter(({ category }) => category === "constraint").map(({ value }) => value)).toEqual([
       "不要删除数字",
       "必须保留链接"
     ]);
-    expect(restoreSpans(rewritten, protectedDoc.spans)).toBe(input);
+    expect(() => restoreSpans(rewritten, protectedDoc.spans)).toThrow(UnresolvedProtectedSpanError);
   });
 
-  it("protects complete English constraint clauses through punctuation boundaries", () => {
+  it("fails restoration when an adversarial rewrite drops an English constraint token", () => {
     const input = "Only keep links; must not change numbers.";
     const protectedDoc = protectSpans(input);
-    const rewritten = protectedDoc.text.replace("Only keep links", "rewritten").replace("must not change numbers", "rewritten");
+    const constraint = protectedDoc.spans.find(({ value }) => /must not/iu.test(value))!;
+    const rewritten = protectedDoc.text.replace(constraint.token, "rewritten");
 
     expect(protectedDoc.spans.filter(({ category }) => category === "constraint").map(({ value }) => value)).toEqual([
       "Only keep links",
       "must not change numbers"
     ]);
-    expect(restoreSpans(rewritten, protectedDoc.spans)).toBe(input);
+    expect(() => restoreSpans(rewritten, protectedDoc.spans)).toThrow(UnresolvedProtectedSpanError);
   });
 
   it.each([
     ["Do not delete invoices.", "Do not delete invoices"],
     ["DON'T delete invoices.", "DON'T delete invoices"],
     ["Never delete invoices.", "Never delete invoices"],
+    ["Do not make it unclear, but keep it concise.", "Do not make it unclear"],
+    ["It should not delete invoices.", "should not delete invoices"],
+    ["Cannot delete invoices.", "Cannot delete invoices"],
+    ["Without deleting invoices, summarize them.", "Without deleting invoices"],
     ["不得删除附件。", "不得删除附件"],
     ["禁止删除附件。", "禁止删除附件"]
   ])("protects the complete negated clause %s", (input, expected) => {

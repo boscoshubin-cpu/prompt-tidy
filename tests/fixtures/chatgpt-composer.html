@@ -10,6 +10,7 @@
     <main>
       <h1>ChatGPT composer fixture</h1>
       <button id="replace-composer" type="button">Replace composer</button>
+      <button id="replace-footer" type="button">Replace footer</button>
       <section id="composer-host" aria-label="Composer fixture"></section>
     </main>
 
@@ -42,6 +43,18 @@
         return true;
       };
 
+      function createFooter() {
+        const footer = document.createElement("div");
+        footer.dataset.testid = "composer-footer";
+        footer.setAttribute("role", "group");
+        footer.setAttribute("aria-label", "Composer actions");
+        footer.innerHTML = '<button type="submit" data-testid="send-button">Send</button>';
+        footer.querySelector("[data-testid='send-button']").addEventListener("click", () => {
+          fixtureEvents.sendClicks += 1;
+        });
+        return footer;
+      }
+
       function createComposer() {
         const form = document.createElement("form");
         form.dataset.type = "composer";
@@ -53,15 +66,10 @@
             role="textbox"
             aria-label="Message ChatGPT"
           ></div>
-          <div data-testid="composer-footer" role="group" aria-label="Composer actions">
-            <button type="submit" data-testid="send-button">Send</button>
-          </div>
         `;
+        form.append(createFooter());
         form.addEventListener("submit", (event) => {
           event.preventDefault();
-        });
-        form.querySelector("[data-testid='send-button']").addEventListener("click", () => {
-          fixtureEvents.sendClicks += 1;
         });
         return form;
       }
@@ -70,7 +78,13 @@
         document.querySelector("#composer-host").replaceChildren(createComposer());
       }
 
+      function replaceFooter() {
+        const footer = document.querySelector("[data-testid='composer-footer']");
+        footer.replaceWith(createFooter());
+      }
+
       document.querySelector("#replace-composer").addEventListener("click", replaceComposer);
+      document.querySelector("#replace-footer").addEventListener("click", replaceFooter);
       replaceComposer();
     </script>
   </body>

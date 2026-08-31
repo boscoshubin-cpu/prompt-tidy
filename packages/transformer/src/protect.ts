@@ -17,13 +17,36 @@ export interface ProtectedSpan {
   value: string;
 }
 
+export interface ProtectionIssue {
+  category: ProtectedCategory;
+  reason: "ambiguous_syntax";
+}
+
 export interface ProtectedDocument {
   text: string;
   spans: readonly ProtectedSpan[];
+  issues: readonly ProtectionIssue[];
 }
 
 /** Source shared with fidelity validation for bounded negation markers. */
-export const NEGATION_MARKER_SOURCE = "不要|不得|禁止|\\bmust\\s+not\\b|\\bdo\\s+not\\b|\\bdon['’]t\\b|\\bnever\\b";
+export const NEGATION_MARKER_SOURCE = [
+  "不要",
+  "不得",
+  "禁止",
+  "不应",
+  "不能",
+  "无需",
+  "切勿",
+  "\\bmust\\s+not\\b",
+  "\\bdo\\s+not\\b",
+  "\\bdon['’]t\\b",
+  "\\bshould\\s+not\\b",
+  "\\bcannot\\b",
+  "\\bcan['’]t\\b",
+  "\\bnever\\b",
+  "\\bwithout\\b",
+  "\\bnot\\b"
+].join("|");
 
 /**
  * Raised when a rewrite has removed a placeholder that was required for
@@ -54,19 +77,42 @@ interface Candidate {
   priority: number;
 }
 
+interface CandidateScan {
+  candidates: Candidate[];
+  issues: ProtectionIssue[];
+}
+
+const NUMBER_ATOM_SOURCE = [
+  "\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?",
+  "\\d{1,3}(?:\\.\\d{3})+(?:,\\d+)?",
+  "\\d+(?:[.,]\\d+)?"
+].join("|");
+
+const NUMBER_ATOM_PATTERN = new RegExp(
+  `(?<![\\p{L}\\p{N}_])(?:${NUMBER_ATOM_SOURCE})(?![\\p{L}\\p{N}_])`,
+  "gu"
+);
+
+const PRICE_PATTERN = new RegExp(
+  `(?:[¥$€£]\\s*(?:${NUMBER_ATOM_SOURCE})|(?:${NUMBER_ATOM_SOURCE})\\s*(?:USD|EUR|GBP|CNY|RMB))(?![\\p{L}\\p{N}_])`,
+  "giu"
+);
+
 // Rules are deliberately ordered from the most structured forms to the most
 // general forms. In particular, dates/prices/URLs must win over number.
 const SPAN_RULES: readonly SpanRule[] = [
+  // The line-aware Markdown fence scanner runs before these regex rules. This
+  // legacy form conservatively protects embedded triple-backtick blocks too.
   { category: "code_block", pattern: /```[\s\S]*?```/g },
   { category: "inline_code", pattern: /`[^`\r\n]*`/g },
   { category: "url", pattern: /https?:\/\/[^\s<>"'“”‘’「」]+/giu },
   { category: "email", pattern: /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/giu },
   {
     category: "path",
-    pattern: /\/(?:[^\s<>"'“”‘’\/]+\/)*[^\s<>"'“”‘’\/]+|[a-z]:[\\/](?:[^\s<>"'“”‘’]+[\\/]?)+/giu
+    pattern: /(?:\.{1,2}|~(?:[\p{L}\p{N}._-]+)?)\/(?:[^\s<>"'“”‘’\/]+\/)*[^\s<>"'“”‘’\/]+|\/\/(?:[^\s<>"'“”‘’\/]+\/)+[^\s<>"'“”‘’\/]+|\\\\(?:[^\\\s<>"'“”‘’]+\\)+[^\\\s<>"'“”‘’]+|\/(?:[^\s<>"'“”‘’\/]+\/)*[^\s<>"'“”‘’\/]+|[a-z]:[\\/](?:[^\s<>"'“”‘’]+[\\/]?)+/giu
   },
   { category: "date", pattern: /\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/g },
-  { category: "price", pattern: /(?:[¥$€£]\s*\d+(?:[,.]\d+)?|\d+(?:[,.]\d+)?\s*(?:USD|EUR|GBP|CNY|RMB))/giu },
+  { category: "price", pattern: PRICE_PATTERN },
   { category: "quote", pattern: /“[^”\r\n]*”|「[^」\r\n]*」|《[^》\r\n]*》|(?<!\w)"[^"\r\n]*"|(?<!\w)'[^'\r\n]*'(?!\w)/gu },
   {
     category: "constraint",
@@ -75,7 +121,7 @@ const SPAN_RULES: readonly SpanRule[] = [
       "giu"
     )
   },
-  { category: "number", pattern: /\b\d+(?:[.,]\d+)?\b/g }
+  { category: "number", pattern: NUMBER_ATOM_PATTERN }
 ];
 
 let nonceCounter = 0;
@@ -101,8 +147,59 @@ function tokenFor(nonce: string, index: number): string {
   return `\uE000prompt-tidy-${nonce}-${index}\uE001`;
 }
 
-function findCandidates(input: string): Candidate[] {
+function findMarkdownFenceCandidates(input: string): CandidateScan {
   const candidates: Candidate[] = [];
+  const issues: ProtectionIssue[] = [];
+  const openingPattern = /^( {0,3})(`{3,}|~{3,})[^\r\n]*(?:\r?\n|$)/gmu;
+  let protectedThrough = -1;
+
+  for (const opening of input.matchAll(openingPattern)) {
+    const start = opening.index ?? 0;
+    if (start < protectedThrough) continue;
+
+    const marker = opening[2];
+    if (!marker) continue;
+    const markerCharacter = marker[0];
+    if (!markerCharacter) continue;
+
+    const closingPattern = /^( {0,3})(`{3,}|~{3,})[ \t]*\r?$/gmu;
+    closingPattern.lastIndex = start + opening[0].length;
+    let closing: RegExpExecArray | null;
+    let end: number | undefined;
+
+    while ((closing = closingPattern.exec(input)) !== null) {
+      const closingMarker = closing[2];
+      if (
+        closingMarker?.[0] === markerCharacter
+        && closingMarker.length >= marker.length
+      ) {
+        end = (closing.index ?? 0) + closing[0].length;
+        break;
+      }
+    }
+
+    if (end === undefined) {
+      issues.push({ category: "code_block", reason: "ambiguous_syntax" });
+      protectedThrough = input.length;
+      continue;
+    }
+
+    candidates.push({
+      start,
+      end,
+      category: "code_block",
+      value: input.slice(start, end),
+      priority: -1
+    });
+    protectedThrough = end;
+  }
+
+  return { candidates, issues };
+}
+
+function findCandidates(input: string): CandidateScan {
+  const fenced = findMarkdownFenceCandidates(input);
+  const candidates: Candidate[] = [...fenced.candidates];
 
   SPAN_RULES.forEach((rule, priority) => {
     for (const match of input.matchAll(rule.pattern)) {
@@ -118,7 +215,7 @@ function findCandidates(input: string): Candidate[] {
         end: start + value.length,
         category: rule.category,
         value,
-        priority
+        priority: priority + 1
       });
     }
   });
@@ -133,7 +230,7 @@ function findCandidates(input: string): Candidate[] {
     if (!overlaps) selected.push(candidate);
   }
 
-  return selected;
+  return { candidates: selected, issues: fenced.issues };
 }
 
 function collisionSafeNonce(input: string, values: readonly string[]): string {
@@ -145,7 +242,7 @@ function collisionSafeNonce(input: string, values: readonly string[]): string {
 }
 
 export function protectSpans(input: string): ProtectedDocument {
-  const candidates = findCandidates(input);
+  const { candidates, issues } = findCandidates(input);
   const nonce = collisionSafeNonce(input, candidates.map((candidate) => candidate.value));
   const spans: ProtectedSpan[] = candidates.map((candidate, index) => ({
     token: tokenFor(nonce, index),
@@ -162,7 +259,7 @@ export function protectSpans(input: string): ProtectedDocument {
     }
   }
 
-  return { text, spans };
+  return { text, spans, issues };
 }
 
 export function restoreSpans(text: string, spans: readonly ProtectedSpan[]): string {

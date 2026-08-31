@@ -74,6 +74,31 @@ describe("validateFidelity", () => {
 
     expect(warnings.every(({ message }) => !message.includes("private-token"))).toBe(true);
   });
+
+  it.each([
+    ["Keep 1,234.56 rows.", "Keep 1,234. 56 rows.", "number"],
+    ["Review ./src/app.ts now.", "Review.src/app.ts now.", "path"],
+    ["~~~js\n  const total = 1;\n~~~", "~~~js const total = 1; ~~~", "code_block"],
+    ["It should not delete invoices.", "It should delete invoices.", "negation"]
+  ])("rejects adversarial critical mutation of %s", (before, after, category) => {
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category, severity: "error" }));
+  });
+
+  it("independently detects grouped-decimal corruption when parser spans are unavailable", () => {
+    const parserBlindSpans = [
+      { category: "number" as const, token: "unused-0", value: "1,234" },
+      { category: "number" as const, token: "unused-1", value: "56" }
+    ];
+    const warnings = validateFidelity(
+      "Keep 1,234.56 rows.",
+      "Keep 1,234. 56 rows.",
+      parserBlindSpans
+    );
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
+  });
 });
 
 describe("fidelity invariant", () => {
@@ -101,6 +126,35 @@ describe("fidelity invariant", () => {
 
           expect(criticalMultiset(result.output)).toEqual(criticalMultiset(input));
           expect(result.output).not.toContain("\uE000prompt-tidy-");
+          expect(transform(result.output, options).output).toBe(result.output);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it("preserves generated grouped decimals, paths, and fences in both modes", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1_000, max: 999_999_999 }),
+        fc.integer({ min: 0, max: 99 }),
+        safeSegment,
+        fc.constantFrom("compact", "structured"),
+        (whole, fraction, name, mode) => {
+          const groupedWhole = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+          const amount = `${groupedWhole}.${fraction.toString().padStart(2, "0")}`;
+          const path = `./src/${name}.ts`;
+          const fence = ["~~~ts", `  const total = ${amount};`, "~~~~"].join("\n");
+          const input = mode === "structured"
+            ? `Task: Review ${path}. Background: Use this code:\n${fence}`
+            : `Review ${path} with ${amount} rows.\n${fence}`;
+          const options = { mode, locale: "en" } as const;
+          const result = transform(input, options);
+
+          expect(result.output).toContain(path);
+          expect(result.output).toContain(amount);
+          expect(result.output).toContain(fence);
+          expect(result.safeToReplace).toBe(true);
           expect(transform(result.output, options).output).toBe(result.output);
         }
       ),

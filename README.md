@@ -90,6 +90,8 @@ npm run test:e2e:install
 npm run test:e2e
 ```
 
+The packaged privacy test starts request and WebSocket observation before fixture navigation, keeps it active through a confirmed composer replacement, and also checks the fixture's `fetch`, XHR, and beacon spies. This is runtime coverage for the controlled packaged-extension flow, not a claim about browser or ChatGPT traffic outside that fixture.
+
 Before a release, also perform the live ChatGPT smoke test described in [Contributing](docs/contributing.md). Do not record prompt content in test notes.
 
 ## Packaging
@@ -100,7 +102,7 @@ Build the production extension and enforce the manifest, permission, asset, and 
 npm run check:package
 ```
 
-A passing check prints `Prompt Tidy package policy: PASS`. Distribute the contents of `extension/dist` without adding remote code or widening host permissions.
+A passing check prints `Prompt Tidy package policy: PASS`. The static gate checks the exact manifest/permission boundary, rejects unexpected manifest execution surfaces and common network or dynamic-execution APIs, and scans every packaged HTML, JavaScript, CSS, and JSON asset for literal, WebSocket, protocol-relative, common concatenated, escaped, percent-encoded, and base64-prefixed remote references. Only the exact W3C namespace identifiers required by the UI bundle and the required ChatGPT manifest match are allowed. This is a bounded static audit, not proof against every possible obfuscation technique. Distribute the contents of `extension/dist` without adding remote code or widening host permissions.
 
 ## Compatibility
 

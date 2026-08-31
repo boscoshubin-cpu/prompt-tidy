@@ -1,5 +1,5 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -18,25 +18,125 @@ const allowedNamespaceUrls = new Set([
   "http://www.w3.org/1999/xhtml",
   "http://www.w3.org/2000/svg"
 ]);
+const requiredProductionHost = "https://chatgpt.com/*";
+const scannedAssetExtensions = new Set([".css", ".cjs", ".html", ".js", ".json", ".mjs"]);
+const forbiddenManifestSurfaces = [
+  "background",
+  "content_security_policy",
+  "devtools_page",
+  "externally_connectable",
+  "oauth2",
+  "options_page",
+  "options_ui",
+  "sandbox",
+  "side_panel",
+  "web_accessible_resources"
+];
+const networkSurfacePatterns = [
+  /\bfetch\s*\(/u,
+  /\bXMLHttpRequest\b/u,
+  /\bWebSocket\s*\(/u,
+  /\bEventSource\s*\(/u,
+  /\.sendBeacon\s*\(/u,
+  /\bimportScripts\s*\(/u,
+  /\bnew\s+(?:Shared)?Worker\s*\(/u
+];
+const executionSurfacePatterns = [
+  /\beval\s*\(/u,
+  /\bnew\s+Function\s*\(/u,
+  /\bWebAssembly\s*\.(?:compile|instantiate)\s*\(/u,
+  /\bjavascript\s*:/iu,
+  /\bdata\s*:\s*text\/javascript/iu
+];
 
 function fail(message) {
   throw new Error(`Prompt Tidy package policy: FAIL — ${message}`);
 }
 
-async function listJavaScriptFiles(directory) {
+async function listPackageFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
 
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listJavaScriptFiles(path));
-    } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      files.push(...await listPackageFiles(path));
+    } else if (entry.isFile()) {
       files.push(path);
     }
   }
 
   return files;
+}
+
+function decodeStaticCharacterEscapes(source) {
+  return source
+    .replace(/\\x([0-9a-f]{2})/giu, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/\\u\{([0-9a-f]{1,6})\}/giu, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/\\u([0-9a-f]{4})/giu, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/%([0-9a-f]{2})/giu, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#x([0-9a-f]+);/giu, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/gu, (_match, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)));
+}
+
+function collapseStaticStringConcatenations(source) {
+  let collapsed = source;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const next = collapsed.replace(/(["'`])\s*\+\s*(["'`])/gu, "");
+    if (next === collapsed) break;
+    collapsed = next;
+  }
+  return collapsed;
+}
+
+function sourceViews(source) {
+  const decoded = decodeStaticCharacterEscapes(source);
+  return new Set([
+    source,
+    decoded,
+    collapseStaticStringConcatenations(source),
+    collapseStaticStringConcatenations(decoded)
+  ]);
+}
+
+function remoteReferences(source) {
+  const references = new Set();
+  const absolutePattern = /(?:https?|wss?):\/\/[^\s"'`\\)<>{}\[\],;]+/giu;
+  const protocolRelativePattern = /(?<![:\\/])\/\/(?:localhost(?::\d+)?|(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?|(?:[a-z0-9-]+\.)+[a-z]{2,})(?:[^\s"'`\\)<>{}\[\],;]*)/giu;
+
+  for (const view of sourceViews(source)) {
+    for (const match of view.matchAll(absolutePattern)) references.add(match[0]);
+    for (const match of view.matchAll(protocolRelativePattern)) references.add(match[0]);
+  }
+
+  return references;
+}
+
+function isAllowedRemoteReference(path, reference) {
+  if (allowedNamespaceUrls.has(reference)) return true;
+  return path === manifestPath && reference === requiredProductionHost;
+}
+
+function verifyAssetSource(path, source) {
+  const displayPath = relative(repositoryRoot, path);
+  const encodedScheme = source.match(/(?:aHR0cDovL|aHR0cHM6Ly|d3M6Ly|d3NzOi8)/u)?.[0];
+  if (encodedScheme) {
+    fail(`encoded remote reference found in ${displayPath}`);
+  }
+
+  const unexpectedReference = [...remoteReferences(source)]
+    .find((reference) => !isAllowedRemoteReference(path, reference));
+  if (unexpectedReference) {
+    fail(`remote reference found in ${displayPath}: ${unexpectedReference}`);
+  }
+
+  if (networkSurfacePatterns.some((pattern) => pattern.test(source))) {
+    fail(`unexpected network surface found in ${displayPath}`);
+  }
+
+  if (executionSurfacePatterns.some((pattern) => pattern.test(source))) {
+    fail(`unexpected execution surface found in ${displayPath}`);
+  }
 }
 
 async function verifyPackage() {
@@ -45,13 +145,15 @@ async function verifyPackage() {
   if (
     !Array.isArray(hostPermissions)
     || hostPermissions.length !== 1
-    || hostPermissions[0] !== "https://chatgpt.com/*"
+    || hostPermissions[0] !== requiredProductionHost
   ) {
     fail("host_permissions must equal ['https://chatgpt.com/*']");
   }
 
-  if (manifest.background !== undefined) {
-    fail("background and service-worker entries are forbidden");
+  for (const surface of forbiddenManifestSurfaces) {
+    if (manifest[surface] !== undefined) {
+      fail(`${surface} manifest surface is forbidden`);
+    }
   }
 
   const contentScripts = manifest.content_scripts;
@@ -60,7 +162,7 @@ async function verifyPackage() {
     || contentScripts.length !== 1
     || !Array.isArray(contentScripts[0]?.matches)
     || contentScripts[0].matches.length !== 1
-    || contentScripts[0].matches[0] !== "https://chatgpt.com/*"
+    || contentScripts[0].matches[0] !== requiredProductionHost
   ) {
     fail("content-script matches must remain scoped to https://chatgpt.com/*");
   }
@@ -92,18 +194,14 @@ async function verifyPackage() {
     }
   }
 
-  const javaScriptFiles = await listJavaScriptFiles(distributionDirectory);
-  if (!javaScriptFiles.some((path) => path.endsWith("popup.js"))) {
+  const packageFiles = await listPackageFiles(distributionDirectory);
+  if (!packageFiles.some((path) => path.endsWith("popup.js"))) {
     fail("popup bundle was not found");
   }
 
-  for (const path of javaScriptFiles) {
+  for (const path of packageFiles.filter((assetPath) => scannedAssetExtensions.has(extname(assetPath)))) {
     const source = await readFile(path, "utf8");
-    const urls = source.match(/https?:\/\/[^\s"'`\\)]+/gu) ?? [];
-    const applicationEndpoint = urls.find((url) => !allowedNamespaceUrls.has(url));
-    if (applicationEndpoint) {
-      fail(`application endpoint found in ${relative(repositoryRoot, path)}: ${applicationEndpoint}`);
-    }
+    verifyAssetSource(path, source);
   }
 }
 

@@ -5,17 +5,20 @@ const chineseSample = "帮我分析这个项目。背景是给新手使用。面
 const postActionObservationMs = 1_000;
 
 test("makes no application network calls while tidying", async ({ context, page }) => {
-  await page.goto(fixtureUrl);
   const requestUrls: string[] = [];
   const webSocketUrls: string[] = [];
   context.on("request", (request) => requestUrls.push(request.url()));
   page.on("websocket", (socket) => webSocketUrls.push(socket.url()));
+  await page.goto(fixtureUrl);
 
-  await page.getByRole("textbox", { name: "Message ChatGPT" }).fill(chineseSample);
+  const composer = page.getByRole("textbox", { name: "Message ChatGPT" });
+  await composer.fill(chineseSample);
   await page.getByRole("button", { name: "整理" }).click();
-  await page.getByRole("dialog", { name: "整理预览" })
-    .getByRole("radio", { name: "Structured" })
-    .check();
+  const preview = page.getByRole("dialog", { name: "整理预览" });
+  await preview.getByRole("radio", { name: "Structured" }).check();
+  await preview.getByRole("button", { name: "替换到输入框" }).click();
+  await expect(preview).toHaveCount(0);
+  await expect(composer).toContainText("## 任务");
 
   await page.waitForTimeout(postActionObservationMs);
   const fixtureEvents = await page.evaluate(() => (
@@ -28,9 +31,13 @@ test("makes no application network calls while tidying", async ({ context, page 
     sendClicks: 0,
     xhrCalls: []
   });
-  expect(requestUrls.filter(isApplicationNetworkUrl)).toEqual([]);
+  expect(requestUrls.filter(isUnexpectedApplicationNetworkUrl)).toEqual([]);
   expect(webSocketUrls.filter(isApplicationNetworkUrl)).toEqual([]);
 });
+
+function isUnexpectedApplicationNetworkUrl(url: string): boolean {
+  return isApplicationNetworkUrl(url) && url !== fixtureUrl;
+}
 
 function isApplicationNetworkUrl(url: string): boolean {
   return /^(?:https?|wss?):\/\//u.test(url);

@@ -41,6 +41,47 @@ function protectedMultisets(spans: readonly ProtectedSpan[]): Map<CriticalCatego
   return values;
 }
 
+function countLiteral(text: string, value: string): number {
+  if (value === "") return 0;
+
+  let count = 0;
+  let offset = 0;
+  while (offset <= text.length - value.length) {
+    const match = text.indexOf(value, offset);
+    if (match < 0) break;
+    count += 1;
+    offset = match + value.length;
+  }
+  return count;
+}
+
+function missingExactLiteralCategories(
+  output: string,
+  spans: readonly ProtectedSpan[]
+): CriticalCategory[] {
+  const expected = protectedMultisets(spans);
+
+  return [...expected.entries()].flatMap(([category, values]) => (
+    [...values.entries()].some(([value, count]) => countLiteral(output, value) < count)
+      ? [category]
+      : []
+  ));
+}
+
+// This deliberately does not share protect.ts's numeric lexer. It is a
+// defense-in-depth signal so a future protection-parser regression cannot make
+// both sides agree that a grouped decimal was safely split.
+const FIDELITY_NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu;
+
+function rawNumberMultiset(text: string): Map<string, number> {
+  const values = new Map<string, number>();
+  for (const match of text.matchAll(FIDELITY_NUMBER_PATTERN)) {
+    const value = match[0];
+    values.set(value, (values.get(value) ?? 0) + 1);
+  }
+  return values;
+}
+
 function differs(expected: ReadonlyMap<string, number>, actual: ReadonlyMap<string, number>): boolean {
   const values = new Set([...expected.keys(), ...actual.keys()]);
 
@@ -53,16 +94,25 @@ function changedCategories(
   spans: readonly ProtectedSpan[]
 ): CriticalCategory[] {
   const expected = protectedMultisets(spans);
-  const actual = protectedMultisets(protectSpans(output).spans);
+  const outputDocument = protectSpans(output);
+  const actual = protectedMultisets(outputDocument.spans);
   const protectedCategories = new Set([...expected.keys(), ...actual.keys()]);
-  const missing = [...protectedCategories]
-    .filter((category) => differs(expected.get(category) ?? new Map(), actual.get(category) ?? new Map()));
+  const changed = new Set<CriticalCategory>([...protectedCategories]
+    .filter((category) => differs(expected.get(category) ?? new Map(), actual.get(category) ?? new Map())));
 
-  if (differs(negationMultiset(original), negationMultiset(output))) {
-    missing.push("negation");
+  for (const category of missingExactLiteralCategories(output, spans)) changed.add(category);
+  for (const issue of protectSpans(original).issues) changed.add(issue.category);
+  for (const issue of outputDocument.issues) changed.add(issue.category);
+
+  if (differs(rawNumberMultiset(original), rawNumberMultiset(output))) {
+    changed.add("number");
   }
 
-  return missing;
+  if (differs(negationMultiset(original), negationMultiset(output))) {
+    changed.add("negation");
+  }
+
+  return [...changed];
 }
 
 /**

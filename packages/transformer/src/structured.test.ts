@@ -151,4 +151,38 @@ describe("structured mode", () => {
       message: "The tidied prompt is longer because formatting was added."
     });
   });
+
+  it("keeps grouped decimals atomic in Structured mode", () => {
+    const result = transform(
+      "Task: Analyze revenue of 1,234.56 USD. Output format: Use a table.",
+      { mode: "structured", locale: "en" }
+    );
+
+    expect(result.output).toContain("Analyze revenue of 1,234.56 USD.");
+    expect(result.output).not.toContain("1,234. 56.");
+    expect(result.safeToReplace).toBe(true);
+  });
+
+  it("preserves tilde fences and relative paths in Structured mode", () => {
+    const fence = ["~~~js", "  import app from './src/app.ts';", "~~~~"].join("\n");
+    const input = `Task: Review ./src/app.ts. Background: Use this code:\n${fence}`;
+    const result = transform(input, { mode: "structured", locale: "en" });
+
+    expect(result.output).toContain("./src/app.ts");
+    expect(result.output).toContain(fence);
+    expect(result.safeToReplace).toBe(true);
+  });
+
+  it("leaves an unclosed fence unchanged and blocks replacement", () => {
+    const input = "Task: Review this code.\n~~~js\nconst total = 1,234.56;";
+    const result = transform(input, { mode: "structured", locale: "en" });
+
+    expect(result.output).toBe(input);
+    expect(result.safeToReplace).toBe(false);
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "critical_content_missing",
+      category: "code_block",
+      severity: "error"
+    }));
+  });
 });

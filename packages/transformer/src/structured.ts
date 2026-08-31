@@ -98,8 +98,9 @@ function isBulleted(section: Section): boolean {
 }
 
 /**
- * Groups only clauses with an explicit marker. Clauses without a marker remain
- * in Task, so structure never discards or invents prompt content.
+ * Groups only clauses with an explicit marker. Unmarked clauses remain in the
+ * active standalone section when present, otherwise in Task, so structure
+ * never discards or invents prompt content.
  */
 export function structureText(text: string, locale: Locale): RewriteStageResult {
   const sections = new Map<Section, string[]>();

@@ -130,6 +130,26 @@ function unchangedContentResult(
   };
 }
 
+function ambiguousContentResult(
+  input: string,
+  categories: readonly string[]
+): TransformResult {
+  const warnings: TransformResult["warnings"] = [...new Set(categories)].map((category) => ({
+    code: "critical_content_missing",
+    severity: "error",
+    category,
+    message: `Ambiguous ${category} syntax was left unchanged for safety.`
+  }));
+
+  return {
+    output: input,
+    changes: [],
+    warnings,
+    metrics: buildMetrics(input, input),
+    safeToReplace: false
+  };
+}
+
 export function transform(input: string, options: TransformOptions): TransformResult {
   validateInput(input);
 
@@ -144,6 +164,9 @@ export function transform(input: string, options: TransformOptions): TransformRe
   try {
     const locale = resolveLocale(input, options.locale);
     const protectedDoc = protectSpans(input);
+    if (protectedDoc.issues.length > 0) {
+      return ambiguousContentResult(input, protectedDoc.issues.map(({ category }) => category));
+    }
     if (hasOnlyProtectedContent(protectedDoc)) {
       return unchangedContentResult(input, {
         code: "only_protected_content",
@@ -168,10 +191,13 @@ export function transform(input: string, options: TransformOptions): TransformRe
       : [];
 
     const warnings = [...contentWarnings(input, output), ...fidelityWarnings, ...lengthWarnings];
+    const rewriteChanges = options.mode === "structured"
+      ? [...compacted.changes, ...rewritten.changes]
+      : compacted.changes;
 
     return {
       output,
-      changes: [...normalized.changes, ...compacted.changes, ...rewritten.changes],
+      changes: [...normalized.changes, ...rewriteChanges],
       warnings,
       metrics,
       safeToReplace: safeToReplace(warnings)

@@ -6,12 +6,14 @@ import { App } from "../ui/app";
 import { promptTidyStyles } from "../ui/styles";
 
 const mountedApps = new WeakMap<HTMLElement, HTMLElement>();
+const composerHosts = new WeakMap<HTMLElement, HTMLElement>();
 
 export interface MountPromptTidyOptions {
   adapter: ComposerAdapter;
   composer: HTMLElement;
   modeStore: ModeStore;
   onReplacementFailure?: () => void;
+  onReplacementSuccess?: () => void;
 }
 
 function removePromptTidyRoot(host: HTMLElement): void {
@@ -26,10 +28,14 @@ export function mountPromptTidy({
   adapter,
   composer,
   modeStore,
-  onReplacementFailure
-}: MountPromptTidyOptions): boolean {
+  onReplacementFailure,
+  onReplacementSuccess
+}: MountPromptTidyOptions): HTMLElement | null {
   const mountPoint = adapter.findMountPoint(composer);
-  if (!mountPoint) return false;
+  if (!mountPoint) return null;
+
+  const previousHost = composerHosts.get(composer);
+  if (previousHost) removePromptTidyRoot(previousHost);
 
   for (const root of Array.from(mountPoint.children)) {
     if (root instanceof HTMLElement && root.dataset.promptTidyRoot === "true") {
@@ -47,6 +53,7 @@ export function mountPromptTidy({
   shadowRoot.append(style, appRoot);
   mountPoint.append(host);
   mountedApps.set(host, appRoot);
+  composerHosts.set(composer, host);
 
   render(
     <App
@@ -54,8 +61,9 @@ export function mountPromptTidy({
       composer={composer}
       modeStore={modeStore}
       onReplacementFailure={onReplacementFailure}
+      onReplacementSuccess={onReplacementSuccess}
     />,
     appRoot
   );
-  return true;
+  return host;
 }

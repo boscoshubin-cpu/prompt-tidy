@@ -119,4 +119,33 @@ describe("compatibility status reporter", () => {
       }
     ]);
   });
+
+  it("returns to supported after a bounded replacement failure", async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const timestamps = [
+      "2026-08-29T01:00:00.000Z",
+      "2026-08-29T01:00:01.000Z"
+    ];
+    const reporter = createCompatibilityReporter({
+      storage: { set },
+      now: () => timestamps.shift()!
+    });
+
+    await reporter.report("unsupported", "replacement_failed");
+    await reporter.report("supported");
+
+    expect(set.mock.calls.map(([items]) => items.compatibilityStatus)).toEqual([
+      {
+        state: "unsupported",
+        adapterVersion: "1",
+        checkedAt: "2026-08-29T01:00:00.000Z",
+        errorCategory: "replacement_failed"
+      },
+      {
+        state: "supported",
+        adapterVersion: "1",
+        checkedAt: "2026-08-29T01:00:01.000Z"
+      }
+    ]);
+  });
 });

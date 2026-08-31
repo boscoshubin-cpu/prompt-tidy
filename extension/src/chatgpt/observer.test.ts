@@ -6,8 +6,19 @@ import { startComposerObserver } from "./observer";
 function makeComposerFixture(): HTMLElement {
   const form = document.createElement("form");
   form.dataset.type = "composer";
-  form.innerHTML = '<div contenteditable="true" role="textbox">Draft</div>';
+  form.innerHTML = [
+    '<div contenteditable="true" role="textbox">Draft</div>',
+    '<div data-testid="composer-footer"><button type="submit">Send</button></div>'
+  ].join("");
   return form;
+}
+
+function mountHost(composer: HTMLElement): HTMLElement {
+  const mountPoint = chatGptAdapter.findMountPoint(composer)!;
+  const host = document.createElement("div");
+  host.dataset.promptTidyRoot = "true";
+  mountPoint.append(host);
+  return host;
 }
 
 describe("startComposerObserver", () => {
@@ -20,7 +31,7 @@ describe("startComposerObserver", () => {
     vi.useFakeTimers();
     const composerFixture = makeComposerFixture();
     document.body.append(composerFixture);
-    const onComposer = vi.fn(() => true);
+    const onComposer = vi.fn(mountHost);
 
     const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
     await vi.advanceTimersByTimeAsync(25);
@@ -31,7 +42,7 @@ describe("startComposerObserver", () => {
 
   it("mounts once per connected composer", async () => {
     vi.useFakeTimers();
-    const onComposer = vi.fn(() => true);
+    const onComposer = vi.fn(mountHost);
     const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
     document.body.append(makeComposerFixture());
 
@@ -46,7 +57,7 @@ describe("startComposerObserver", () => {
     vi.useFakeTimers();
     const first = makeComposerFixture();
     document.body.append(first);
-    const onComposer = vi.fn(() => true);
+    const onComposer = vi.fn(mountHost);
     const onComposerMissing = vi.fn();
     const options = { adapter: chatGptAdapter, onComposer, onComposerMissing, debounceMs: 25 };
     const stop = startComposerObserver(options);
@@ -66,7 +77,7 @@ describe("startComposerObserver", () => {
     vi.useFakeTimers();
     const first = makeComposerFixture();
     document.body.append(first);
-    const onComposer = vi.fn(() => true);
+    const onComposer = vi.fn(mountHost);
     const onComposerMissing = vi.fn();
     const options = { adapter: chatGptAdapter, onComposer, onComposerMissing, debounceMs: 25 };
     const stop = startComposerObserver(options);
@@ -92,9 +103,11 @@ describe("startComposerObserver", () => {
     let mountPointAvailable = false;
     let mountedRoots = 0;
     const onComposer = vi.fn(() => {
-      if (!mountPointAvailable) return false;
+      if (!mountPointAvailable) return null;
       mountedRoots += 1;
-      return true;
+      const host = document.createElement("div");
+      chatGptAdapter.findMountPoint(composer)?.append(host);
+      return host;
     });
     const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
     document.body.append(composerFixture);
@@ -112,6 +125,47 @@ describe("startComposerObserver", () => {
     expect(onComposer).toHaveBeenCalledTimes(2);
     expect(onComposer).toHaveBeenLastCalledWith(composer);
     expect(mountedRoots).toBe(1);
+    stop();
+  });
+
+  it("remounts when only the footer is replaced under the same composer", async () => {
+    vi.useFakeTimers();
+    const fixture = makeComposerFixture();
+    document.body.append(fixture);
+    const onComposer = vi.fn(mountHost);
+    const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
+    await vi.advanceTimersByTimeAsync(25);
+
+    const composer = fixture.querySelector<HTMLElement>("[role='textbox']")!;
+    const originalHost = fixture.querySelector<HTMLElement>("[data-prompt-tidy-root='true']")!;
+    const replacementFooter = document.createElement("div");
+    replacementFooter.dataset.testid = "composer-footer";
+    replacementFooter.innerHTML = '<button type="submit">Send</button>';
+    fixture.querySelector("[data-testid='composer-footer']")!.replaceWith(replacementFooter);
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(onComposer).toHaveBeenCalledTimes(2);
+    expect(onComposer).toHaveBeenLastCalledWith(composer);
+    expect(originalHost.isConnected).toBe(false);
+    expect(replacementFooter.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
+    stop();
+  });
+
+  it("remounts when the tracked host stays connected but leaves the current mount point", async () => {
+    vi.useFakeTimers();
+    const fixture = makeComposerFixture();
+    const parkingLot = document.createElement("aside");
+    document.body.append(fixture, parkingLot);
+    const onComposer = vi.fn(mountHost);
+    const stop = startComposerObserver({ adapter: chatGptAdapter, onComposer, debounceMs: 25 });
+    await vi.advanceTimersByTimeAsync(25);
+
+    const originalHost = fixture.querySelector<HTMLElement>("[data-prompt-tidy-root='true']")!;
+    parkingLot.append(originalHost);
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(onComposer).toHaveBeenCalledTimes(2);
+    expect(fixture.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
     stop();
   });
 });

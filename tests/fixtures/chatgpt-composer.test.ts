@@ -34,4 +34,27 @@ describe("ChatGPT composer fixture", () => {
     expect(fixtureWindow.__promptTidyFixtureEvents.sendClicks).toBe(1);
     dom.window.close();
   });
+
+  it("replaces only the footer while preserving composer identity", async () => {
+    const html = await readFile(resolve("tests/fixtures/chatgpt-composer.html"), "utf8");
+    const dom = new JSDOM(html, {
+      runScripts: "dangerously",
+      url: "http://127.0.0.1:4173/chatgpt-composer.html",
+      beforeParse(window) {
+        Object.defineProperty(window, "fetch", {
+          configurable: true,
+          value: vi.fn().mockResolvedValue(new Response()),
+          writable: true
+        });
+      }
+    });
+    const composerBefore = dom.window.document.querySelector("[role='textbox']");
+    const footerBefore = dom.window.document.querySelector("[data-testid='composer-footer']");
+
+    dom.window.document.querySelector<HTMLButtonElement>("#replace-footer")!.click();
+
+    expect(dom.window.document.querySelector("[role='textbox']")).toBe(composerBefore);
+    expect(dom.window.document.querySelector("[data-testid='composer-footer']")).not.toBe(footerBefore);
+    dom.window.close();
+  });
 });

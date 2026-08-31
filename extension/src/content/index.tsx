@@ -27,13 +27,17 @@ startComposerObserver({
   adapter: chatGptAdapter,
   onComposerMissing: () => reportCompatibility("unsupported", "composer_not_found"),
   onComposer: (composer) => {
-    const mounted = mountPromptTidy({
+    const mountedHost = mountPromptTidy({
       adapter: chatGptAdapter,
       composer,
       modeStore,
-      onReplacementFailure: () => reportCompatibility("unsupported", "replacement_failed")
+      onReplacementFailure: () => reportCompatibility("unsupported", "replacement_failed"),
+      onReplacementSuccess: () => reportCompatibility("supported")
     });
-    reportCompatibility(mounted ? "supported" : "unsupported", mounted ? undefined : "mount_not_found");
-    return mounted;
+    reportCompatibility(
+      mountedHost ? "supported" : "unsupported",
+      mountedHost ? undefined : "mount_not_found"
+    );
+    return mountedHost;
   }
 });

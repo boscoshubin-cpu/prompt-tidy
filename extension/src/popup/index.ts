@@ -36,7 +36,16 @@ function readCompatibilityStatus(value: unknown): CompatibilityStatus | undefine
 
 function stateMessage(status?: CompatibilityStatus): string {
   if (status?.state === "supported") return "ChatGPT 输入框已识别";
-  if (status?.state === "unsupported") return "当前页面未找到输入框";
+  if (status?.state === "unsupported" && status.errorCategory === "mount_not_found") {
+    return "已找到输入框，但整理按钮无法挂载";
+  }
+  if (status?.state === "unsupported" && status.errorCategory === "replacement_failed") {
+    return "上次替换失败，请返回页面重试";
+  }
+  if (status?.state === "unsupported" && status.errorCategory === "composer_not_found") {
+    return "当前页面未找到 ChatGPT 输入框";
+  }
+  if (status?.state === "unsupported") return "当前页面暂不受支持";
   return "尚未检测 ChatGPT 输入框";
 }
 

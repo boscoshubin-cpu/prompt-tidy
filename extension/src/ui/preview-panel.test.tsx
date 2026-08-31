@@ -67,6 +67,7 @@ describe("PreviewPanel", () => {
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.textContent).toContain("原始：15 字符");
     expect(dialog.textContent).toContain("结果：29 字符");
+    expect(dialog.textContent).toContain("变化：+14 字符（+93.3%）");
     expect(dialog.textContent).toContain("原始：约 5 Token");
     expect(dialog.textContent).toContain("结果：约 9 Token");
     expect(dialog.textContent).toContain("Token 为本地估算，并非账单数据");
@@ -128,18 +129,35 @@ describe("PreviewPanel", () => {
   });
 
   it("traps Tab focus between dialog controls", () => {
-    const { container } = renderPanel();
-    const dialog = container.querySelector<HTMLElement>("[role='dialog']")!;
+    const shadowHost = document.createElement("div");
+    const shadowRoot = shadowHost.attachShadow({ mode: "open" });
+    const appRoot = document.createElement("div");
+    shadowRoot.append(appRoot);
+    document.body.append(shadowHost);
+    render(
+      <PreviewPanel
+        original="Original prompt"
+        result={result()}
+        mode="compact"
+        onCancel={vi.fn()}
+        onModeChange={vi.fn()}
+        onReplace={vi.fn()}
+      />,
+      { container: appRoot }
+    );
+    const dialog = shadowRoot.querySelector<HTMLElement>("[role='dialog']")!;
     const controls = dialog.querySelectorAll<HTMLElement>("input, button:not([disabled])");
     const first = controls[0]!;
     const last = controls[controls.length - 1]!;
 
     last.focus();
+    expect(document.activeElement).toBe(shadowHost);
+    expect(shadowRoot.activeElement).toBe(last);
     fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(document.activeElement).toBe(first);
+    expect(shadowRoot.activeElement).toBe(first);
 
     first.focus();
     fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
+    expect(shadowRoot.activeElement).toBe(last);
   });
 });
