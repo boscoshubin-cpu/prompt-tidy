@@ -43,12 +43,12 @@ const networkSurfacePatterns = [
 ];
 const executionSurfacePatterns = [
   /\beval\s*\(/u,
-  /(?<!\bfunction(?:(?:\s+)|(?:\/\*[\s\S]*?\*\/))*)(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*\.\s*)?Function\s*\(/u,
   /\bset(?:Timeout|Interval)\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))\s*)*(?:(["'])[^]*?\1|`[^]*?`)/u,
   /\bWebAssembly\s*\.(?:compile|instantiate)\s*\(/u,
   /\bjavascript\s*:/iu,
   /\bdata\s*:\s*text\/javascript/iu
 ];
+const functionConstructionPattern = /(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*\.\s*)?Function\s*\(/gu;
 
 function fail(message) {
   throw new Error(`Prompt Tidy package policy: FAIL — ${message}`);
@@ -100,6 +100,77 @@ function sourceViews(source) {
   ]);
 }
 
+function declarationSourceView(source) {
+  let view = "";
+  let index = 0;
+  let quote;
+
+  while (index < source.length) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (quote) {
+      if (character === "\\") {
+        view += "  ";
+        index += 2;
+        continue;
+      }
+      view += character === "\n" || character === "\r" ? character : " ";
+      if (character === quote) quote = undefined;
+      index += 1;
+      continue;
+    }
+
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      view += " ";
+      index += 1;
+      continue;
+    }
+
+    if (character === "/" && next === "/") {
+      while (index < source.length && source[index] !== "\n" && source[index] !== "\r") {
+        view += " ";
+        index += 1;
+      }
+      continue;
+    }
+
+    if (character === "/" && next === "*") {
+      while (index < source.length) {
+        const commentCharacter = source[index];
+        const commentNext = source[index + 1];
+        view += commentCharacter === "\n" || commentCharacter === "\r" ? commentCharacter : " ";
+        index += 1;
+        if (commentCharacter === "*" && commentNext === "/") {
+          view += " ";
+          index += 1;
+          break;
+        }
+      }
+      continue;
+    }
+
+    view += character;
+    index += 1;
+  }
+
+  return view;
+}
+
+function hasFunctionConstructionSurface(source) {
+  const declarationView = declarationSourceView(source);
+
+  for (const match of source.matchAll(functionConstructionPattern)) {
+    const value = match[0];
+    const matchIndex = match.index ?? 0;
+    const functionOffset = matchIndex + value.lastIndexOf("Function");
+    if (!/\bfunction\s*$/u.test(declarationView.slice(0, functionOffset))) return true;
+  }
+
+  return false;
+}
+
 function remoteReferences(source) {
   const references = new Set();
   const absolutePattern = /(?:https?|wss?):\/\/[^\s"'`\\)<>{}\[\],;]+/giu;
@@ -135,7 +206,7 @@ function verifyAssetSource(path, source) {
     fail(`unexpected network surface found in ${displayPath}`);
   }
 
-  if (executionSurfacePatterns.some((pattern) => pattern.test(source))) {
+  if (hasFunctionConstructionSurface(source) || executionSurfacePatterns.some((pattern) => pattern.test(source))) {
     fail(`unexpected execution surface found in ${displayPath}`);
   }
 }

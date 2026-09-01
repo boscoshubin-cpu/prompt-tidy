@@ -113,6 +113,7 @@ describe("package policy", () => {
   it.each([
     "new Function('return 1')",
     "Function('return 1')",
+    "// function\nFunction('return 1')",
     "new window.Function('return 1')",
     "window.Function('return 1')",
     "new globalThis.Function('return 1')",
