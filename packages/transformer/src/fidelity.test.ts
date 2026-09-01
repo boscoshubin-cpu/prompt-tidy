@@ -114,6 +114,20 @@ describe("validateFidelity", () => {
     expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
   });
 
+  it("independently detects four-component dotted identifier corruption when parser spans are unavailable", () => {
+    const parserBlindSpans = [
+      { category: "number" as const, token: "unused-0", value: "1.2.3" },
+      { category: "number" as const, token: "unused-1", value: "4" }
+    ];
+    const warnings = validateFidelity(
+      "Deploy version 1.2.3.4",
+      "Deploy version 1.2.3. 4",
+      parserBlindSpans
+    );
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
+  });
+
   it("rejects a Windows-relative path when its required leading boundary is removed", () => {
     const before = "Review .\\src\\app.ts now.";
     const after = "Review.\\src\\app.ts now.";

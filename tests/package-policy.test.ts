@@ -134,7 +134,8 @@ describe("package policy", () => {
 
   it.each([
     "custom.Function(1)",
-    "function Function() {}"
+    "function Function() {}",
+    "function/* audit */Function() {}"
   ])("allows a non-global Function reference that is not an execution surface", async (contents) => {
     const packageRoot = await makePackageManifest({}, { "content.js": contents });
 
