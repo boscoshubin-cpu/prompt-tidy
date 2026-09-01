@@ -43,7 +43,8 @@ const networkSurfacePatterns = [
 ];
 const executionSurfacePatterns = [
   /\beval\s*\(/u,
-  /\bnew\s+Function\s*\(/u,
+  /\b(?:new\s+)?(?:(?:window|globalThis)\s*\.\s*)?Function\s*\(/u,
+  /\bset(?:Timeout|Interval)\s*\(\s*(?:(["'])[^]*?\1|`[^]*?`)/u,
   /\bWebAssembly\s*\.(?:compile|instantiate)\s*\(/u,
   /\bjavascript\s*:/iu,
   /\bdata\s*:\s*text\/javascript/iu

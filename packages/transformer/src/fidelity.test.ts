@@ -99,6 +99,20 @@ describe("validateFidelity", () => {
 
     expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
   });
+
+  it("independently detects dotted numeric identifier corruption when parser spans are unavailable", () => {
+    const parserBlindSpans = [
+      { category: "number" as const, token: "unused-0", value: "1.2" },
+      { category: "number" as const, token: "unused-1", value: "3" }
+    ];
+    const warnings = validateFidelity(
+      "Deploy version 1.2.3",
+      "Deploy version 1.2. 3",
+      parserBlindSpans
+    );
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
+  });
 });
 
 describe("fidelity invariant", () => {

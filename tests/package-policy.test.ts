@@ -110,6 +110,25 @@ describe("package policy", () => {
     });
   });
 
+  it.each([
+    "new Function('return 1')",
+    "Function('return 1')",
+    "new window.Function('return 1')",
+    "window.Function('return 1')",
+    "new globalThis.Function('return 1')",
+    "globalThis.Function('return 1')",
+    "setTimeout('globalThis.compromised = true', 0)",
+    "setTimeout(`globalThis.compromised = true`, 0)",
+    "setInterval('globalThis.compromised = true', 0)",
+    "setInterval(`globalThis.compromised = true`, 0)"
+  ])("rejects a packaged dynamic execution variant", async (contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
   it("rejects an externally connectable manifest surface", async () => {
     const packageRoot = await makePackageManifest({
       externally_connectable: { matches: ["https://example.com/*"] }

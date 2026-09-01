@@ -71,7 +71,7 @@ function missingExactLiteralCategories(
 // This deliberately does not share protect.ts's numeric lexer. It is a
 // defense-in-depth signal so a future protection-parser regression cannot make
 // both sides agree that a grouped decimal was safely split.
-const FIDELITY_NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu;
+const FIDELITY_NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:\d+(?:\.\d+){2,}|\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu;
 
 function rawNumberMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();

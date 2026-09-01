@@ -57,6 +57,25 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
+  it("protects Windows relative paths with nested segments as atomic spans", () => {
+    const input = "Review .\\src\\components\\app.ts and ..\\config\\settings.json.";
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "path").map(({ value }) => value)).toEqual([
+      ".\\src\\components\\app.ts",
+      "..\\config\\settings.json."
+    ]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("protects dotted numeric identifiers with three components as one number", () => {
+    const protectedDoc = protectSpans("Deploy version 1.2.3 now.");
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "number").map(({ value }) => value)).toEqual([
+      "1.2.3"
+    ]);
+  });
+
   it("protects Markdown backtick and tilde fences using compatible closing lengths", () => {
     const input = [
       "````markdown",

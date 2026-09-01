@@ -64,4 +64,14 @@ describe("transform", () => {
       code: "only_protected_content"
     }));
   });
+
+  it("preserves Windows relative paths and dotted numeric identifiers during public transforms", () => {
+    const result = transform("please review .\\src\\app.ts with version 1.2.3.", {
+      mode: "compact",
+      locale: "en"
+    });
+
+    expect(result.output).toBe("Review .\\src\\app.ts with version 1.2.3.");
+    expect(result.safeToReplace).toBe(true);
+  });
 });
