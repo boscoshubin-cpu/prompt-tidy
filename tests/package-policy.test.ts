@@ -118,15 +118,27 @@ describe("package policy", () => {
     "new globalThis.Function('return 1')",
     "globalThis.Function('return 1')",
     "setTimeout('globalThis.compromised = true', 0)",
+    'setTimeout("globalThis.compromised = true", 0)',
     "setTimeout(`globalThis.compromised = true`, 0)",
     "setInterval('globalThis.compromised = true', 0)",
-    "setInterval(`globalThis.compromised = true`, 0)"
+    "setInterval(`globalThis.compromised = true`, 0)",
+    'setTimeout(/* audit */ "globalThis.compromised = true", 0)',
+    "setInterval(/* audit */ `globalThis.compromised = true`, 0)"
   ])("rejects a packaged dynamic execution variant", async (contents) => {
     const packageRoot = await makePackageManifest({}, { "content.js": contents });
 
     await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
       stderr: expect.stringContaining("execution surface")
     });
+  });
+
+  it.each([
+    "custom.Function(1)",
+    "function Function() {}"
+  ])("allows a non-global Function reference that is not an execution surface", async (contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
   });
 
   it("rejects an externally connectable manifest surface", async () => {

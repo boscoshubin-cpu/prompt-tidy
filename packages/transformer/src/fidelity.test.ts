@@ -113,6 +113,14 @@ describe("validateFidelity", () => {
 
     expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
   });
+
+  it("rejects a Windows-relative path when its required leading boundary is removed", () => {
+    const before = "Review .\\src\\app.ts now.";
+    const after = "Review.\\src\\app.ts now.";
+    const warnings = validateFidelity(before, after, protectSpans(before).spans);
+
+    expect(warnings).toContainEqual(expect.objectContaining({ category: "path", severity: "error" }));
+  });
 });
 
 describe("fidelity invariant", () => {

@@ -73,9 +73,20 @@ function missingExactLiteralCategories(
 // both sides agree that a grouped decimal was safely split.
 const FIDELITY_NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:\d+(?:\.\d+){2,}|\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu;
 
+const FIDELITY_WINDOWS_RELATIVE_PATH_PATTERN = /(?:^|(?<=\s))\.{1,2}\\(?:[^\\\s<>"'“”‘’]+\\)*[^\\\s<>"'“”‘’]+/gu;
+
 function rawNumberMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();
   for (const match of text.matchAll(FIDELITY_NUMBER_PATTERN)) {
+    const value = match[0];
+    values.set(value, (values.get(value) ?? 0) + 1);
+  }
+  return values;
+}
+
+function rawWindowsRelativePathMultiset(text: string): Map<string, number> {
+  const values = new Map<string, number>();
+  for (const match of text.matchAll(FIDELITY_WINDOWS_RELATIVE_PATH_PATTERN)) {
     const value = match[0];
     values.set(value, (values.get(value) ?? 0) + 1);
   }
@@ -106,6 +117,10 @@ function changedCategories(
 
   if (differs(rawNumberMultiset(original), rawNumberMultiset(output))) {
     changed.add("number");
+  }
+
+  if (differs(rawWindowsRelativePathMultiset(original), rawWindowsRelativePathMultiset(output))) {
+    changed.add("path");
   }
 
   if (differs(negationMultiset(original), negationMultiset(output))) {

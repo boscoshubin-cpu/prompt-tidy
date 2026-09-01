@@ -76,6 +76,14 @@ describe("protected spans", () => {
     ]);
   });
 
+  it("protects dotted numeric identifiers with four components as one number", () => {
+    const protectedDoc = protectSpans("Deploy version 1.2.3.4 now.");
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "number").map(({ value }) => value)).toEqual([
+      "1.2.3.4"
+    ]);
+  });
+
   it("protects Markdown backtick and tilde fences using compatible closing lengths", () => {
     const input = [
       "````markdown",
