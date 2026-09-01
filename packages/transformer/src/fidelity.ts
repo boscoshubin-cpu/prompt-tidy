@@ -6,7 +6,7 @@ import {
 } from "./protect";
 import type { TransformWarning } from "./types";
 
-type CriticalCategory = ProtectedCategory | "negation";
+type CriticalCategory = ProtectedCategory | "dotted_atom" | "negation";
 
 const NEGATION_PATTERN = new RegExp(NEGATION_MARKER_SOURCE, "giu");
 
@@ -75,6 +75,8 @@ const FIDELITY_NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:\d+(?:\.\d+){2,}|\d{1,3}(?
 
 const FIDELITY_WINDOWS_RELATIVE_PATH_PATTERN = /(?:^|(?<=\s))\.{1,2}\\(?:[^\\\s<>"'“”‘’]+\\)*[^\\\s<>"'“”‘’]+/gu;
 
+const FIDELITY_DOTTED_ATOM_PATTERN = /(?<![\p{L}\p{N}_])[\p{L}_][\p{L}\p{N}_-]*(?:\.[\p{L}_][\p{L}\p{N}_-]*)+(?![\p{L}\p{N}_])/gu;
+
 function rawNumberMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();
   for (const match of text.matchAll(FIDELITY_NUMBER_PATTERN)) {
@@ -87,6 +89,15 @@ function rawNumberMultiset(text: string): Map<string, number> {
 function rawWindowsRelativePathMultiset(text: string): Map<string, number> {
   const values = new Map<string, number>();
   for (const match of text.matchAll(FIDELITY_WINDOWS_RELATIVE_PATH_PATTERN)) {
+    const value = match[0];
+    values.set(value, (values.get(value) ?? 0) + 1);
+  }
+  return values;
+}
+
+function rawDottedAtomMultiset(text: string): Map<string, number> {
+  const values = new Map<string, number>();
+  for (const match of text.matchAll(FIDELITY_DOTTED_ATOM_PATTERN)) {
     const value = match[0];
     values.set(value, (values.get(value) ?? 0) + 1);
   }
@@ -121,6 +132,10 @@ function changedCategories(
 
   if (differs(rawWindowsRelativePathMultiset(original), rawWindowsRelativePathMultiset(output))) {
     changed.add("path");
+  }
+
+  if (differs(rawDottedAtomMultiset(original), rawDottedAtomMultiset(output))) {
+    changed.add("dotted_atom");
   }
 
   if (differs(negationMultiset(original), negationMultiset(output))) {

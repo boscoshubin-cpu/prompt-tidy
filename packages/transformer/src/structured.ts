@@ -56,7 +56,10 @@ const EN_HEADINGS: Record<Section, string> = {
 };
 
 function splitClauses(text: string): string[] {
-  return text.match(/[^\n.!?。！？]+[.!?。！？]*|\n+/gu) ?? [];
+  // A period is a sentence boundary only when it is followed by whitespace or
+  // the end of the prompt. Dots inside identifiers and domain-like atoms stay
+  // inside the current clause.
+  return text.match(/[^\n!?。！？]+?(?:\.(?=\s|$)|[!?。！？]+|(?=\n|$))|\n+/gu) ?? [];
 }
 
 function trimClause(clause: string): string {

@@ -80,6 +80,12 @@ interface Candidate {
 interface CandidateScan {
   candidates: Candidate[];
   issues: ProtectionIssue[];
+  blockedRanges: TextRange[];
+}
+
+interface TextRange {
+  start: number;
+  end: number;
 }
 
 const NUMBER_ATOM_SOURCE = [
@@ -102,10 +108,6 @@ const PRICE_PATTERN = new RegExp(
 // Rules are deliberately ordered from the most structured forms to the most
 // general forms. In particular, dates/prices/URLs must win over number.
 const SPAN_RULES: readonly SpanRule[] = [
-  // The line-aware Markdown fence scanner runs before these regex rules. This
-  // legacy form conservatively protects embedded triple-backtick blocks too.
-  { category: "code_block", pattern: /```[\s\S]*?```/g },
-  { category: "inline_code", pattern: /`[^`\r\n]*`/g },
   { category: "url", pattern: /https?:\/\/[^\s<>"'“”‘’「」]+/giu },
   { category: "email", pattern: /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/giu },
   {
@@ -148,15 +150,39 @@ function tokenFor(nonce: string, index: number): string {
   return `\uE000prompt-tidy-${nonce}-${index}\uE001`;
 }
 
-function findMarkdownFenceCandidates(input: string): CandidateScan {
+function findLegacyTripleBacktickCandidates(input: string): CandidateScan {
+  const candidates = [...input.matchAll(/(?<!`)```(?!`)[\s\S]*?(?<!`)```(?!`)/gu)].map((match) => {
+    const start = match.index ?? 0;
+    return {
+      start,
+      end: start + match[0].length,
+      category: "code_block" as const,
+      value: match[0],
+      priority: -3
+    };
+  });
+
+  return {
+    candidates,
+    issues: [],
+    blockedRanges: candidates.map(({ start, end }) => ({ start, end }))
+  };
+}
+
+function findMarkdownFenceCandidates(
+  input: string,
+  existingRanges: readonly TextRange[]
+): CandidateScan {
   const candidates: Candidate[] = [];
   const issues: ProtectionIssue[] = [];
+  const blockedRanges: TextRange[] = [];
   const openingPattern = /^( {0,3})(`{3,}|~{3,})[^\r\n]*(?:\r?\n|$)/gmu;
   let protectedThrough = -1;
 
   for (const opening of input.matchAll(openingPattern)) {
     const start = opening.index ?? 0;
     if (start < protectedThrough) continue;
+    if (rangeContaining(start, existingRanges)) continue;
 
     const marker = opening[2];
     if (!marker) continue;
@@ -181,6 +207,7 @@ function findMarkdownFenceCandidates(input: string): CandidateScan {
 
     if (end === undefined) {
       issues.push({ category: "code_block", reason: "ambiguous_syntax" });
+      blockedRanges.push({ start, end: input.length });
       protectedThrough = input.length;
       continue;
     }
@@ -192,15 +219,202 @@ function findMarkdownFenceCandidates(input: string): CandidateScan {
       value: input.slice(start, end),
       priority: -1
     });
+    blockedRanges.push({ start, end });
     protectedThrough = end;
   }
 
-  return { candidates, issues };
+  return { candidates, issues, blockedRanges };
+}
+
+function overlapsRange(start: number, end: number, ranges: readonly TextRange[]): boolean {
+  return ranges.some((range) => start < range.end && range.start < end);
+}
+
+interface LineRange {
+  start: number;
+  contentEnd: number;
+  nextStart: number;
+  content: string;
+}
+
+function lineRanges(input: string): LineRange[] {
+  const lines: LineRange[] = [];
+  let start = 0;
+
+  while (start < input.length) {
+    const newline = input.indexOf("\n", start);
+    const nextStart = newline < 0 ? input.length : newline + 1;
+    const rawContentEnd = newline < 0 ? input.length : newline;
+    const contentEnd = rawContentEnd > start && input[rawContentEnd - 1] === "\r"
+      ? rawContentEnd - 1
+      : rawContentEnd;
+    lines.push({
+      start,
+      contentEnd,
+      nextStart,
+      content: input.slice(start, contentEnd)
+    });
+    start = nextStart;
+  }
+
+  return lines;
+}
+
+function isIndentedCodeLine(line: string): boolean {
+  return /^(?: {4,}|\t)/u.test(line);
+}
+
+function findMarkdownIndentedCodeCandidates(
+  input: string,
+  blockedRanges: readonly TextRange[]
+): CandidateScan {
+  const candidates: Candidate[] = [];
+  const lines = lineRanges(input);
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (
+      !line
+      || !isIndentedCodeLine(line.content)
+      || overlapsRange(line.start, line.nextStart, blockedRanges)
+    ) {
+      index += 1;
+      continue;
+    }
+
+    const start = line.start;
+    let lastCodeLine = line;
+    let cursor = index + 1;
+    while (cursor < lines.length) {
+      const candidateLine = lines[cursor];
+      if (!candidateLine || overlapsRange(candidateLine.start, candidateLine.nextStart, blockedRanges)) break;
+      if (isIndentedCodeLine(candidateLine.content)) {
+        lastCodeLine = candidateLine;
+        cursor += 1;
+        continue;
+      }
+      if (candidateLine.content.trim() === "") {
+        cursor += 1;
+        continue;
+      }
+      break;
+    }
+
+    const end = lastCodeLine.contentEnd;
+    candidates.push({
+      start,
+      end,
+      category: "code_block",
+      value: input.slice(start, end),
+      priority: -2
+    });
+    index = lines.findIndex((candidateLine) => candidateLine.start >= end);
+    if (index < 0) index = lines.length;
+    if (lines[index]?.start === start) index += 1;
+  }
+
+  return {
+    candidates,
+    issues: [],
+    blockedRanges: candidates.map(({ start, end }) => ({ start, end }))
+  };
+}
+
+function rangeContaining(offset: number, ranges: readonly TextRange[]): TextRange | undefined {
+  return ranges.find((range) => range.start <= offset && offset < range.end);
+}
+
+function findInlineCodeCandidates(
+  input: string,
+  blockedRanges: readonly TextRange[]
+): CandidateScan {
+  const candidates: Candidate[] = [];
+  const issues: ProtectionIssue[] = [];
+  let index = 0;
+
+  while (index < input.length) {
+    const blocked = rangeContaining(index, blockedRanges);
+    if (blocked) {
+      index = blocked.end;
+      continue;
+    }
+    if (input[index] !== "`") {
+      index += 1;
+      continue;
+    }
+
+    const start = index;
+    while (input[index] === "`") index += 1;
+    const delimiterLength = index - start;
+    let searchOffset = index;
+    let closingEnd: number | undefined;
+
+    while (searchOffset < input.length) {
+      const searchBlocked = rangeContaining(searchOffset, blockedRanges);
+      if (searchBlocked) {
+        searchOffset = searchBlocked.end;
+        continue;
+      }
+      const nextRun = input.indexOf("`", searchOffset);
+      if (nextRun < 0) break;
+      const nextRunBlocked = rangeContaining(nextRun, blockedRanges);
+      if (nextRunBlocked) {
+        searchOffset = nextRunBlocked.end;
+        continue;
+      }
+
+      let runEnd = nextRun;
+      while (input[runEnd] === "`") runEnd += 1;
+      if (runEnd - nextRun === delimiterLength) {
+        closingEnd = runEnd;
+        break;
+      }
+      searchOffset = runEnd;
+    }
+
+    if (closingEnd === undefined) {
+      const category = delimiterLength >= 3 && /[\r\n]/u.test(input.slice(start))
+        ? "code_block"
+        : "inline_code";
+      issues.push({ category, reason: "ambiguous_syntax" });
+      break;
+    }
+
+    const value = input.slice(start, closingEnd);
+    const category = delimiterLength >= 3 && /[\r\n]/u.test(value)
+      ? "code_block"
+      : "inline_code";
+    candidates.push({
+      start,
+      end: closingEnd,
+      category,
+      value,
+      priority: -1
+    });
+    index = closingEnd;
+  }
+
+  return {
+    candidates,
+    issues,
+    blockedRanges: candidates.map(({ start, end }) => ({ start, end }))
+  };
 }
 
 function findCandidates(input: string): CandidateScan {
-  const fenced = findMarkdownFenceCandidates(input);
-  const candidates: Candidate[] = [...fenced.candidates];
+  const legacyTriple = findLegacyTripleBacktickCandidates(input);
+  const fenced = findMarkdownFenceCandidates(input, legacyTriple.blockedRanges);
+  const preIndentedRanges = [...legacyTriple.blockedRanges, ...fenced.blockedRanges];
+  const indented = findMarkdownIndentedCodeCandidates(input, preIndentedRanges);
+  const codeBlockRanges = [...preIndentedRanges, ...indented.blockedRanges];
+  const inline = findInlineCodeCandidates(input, codeBlockRanges);
+  const candidates: Candidate[] = [
+    ...legacyTriple.candidates,
+    ...fenced.candidates,
+    ...indented.candidates,
+    ...inline.candidates
+  ];
 
   SPAN_RULES.forEach((rule, priority) => {
     for (const match of input.matchAll(rule.pattern)) {
@@ -231,7 +445,11 @@ function findCandidates(input: string): CandidateScan {
     if (!overlaps) selected.push(candidate);
   }
 
-  return { candidates: selected, issues: fenced.issues };
+  return {
+    candidates: selected,
+    issues: [...legacyTriple.issues, ...fenced.issues, ...indented.issues, ...inline.issues],
+    blockedRanges: [...codeBlockRanges, ...inline.blockedRanges]
+  };
 }
 
 function collisionSafeNonce(input: string, values: readonly string[]): string {

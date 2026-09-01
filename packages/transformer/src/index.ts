@@ -180,6 +180,13 @@ export function transform(input: string, options: TransformOptions): TransformRe
       ? structureText(addExplicitConstraintMarkers(compacted.text, protectedDoc.spans, locale), locale)
       : compacted;
     const output = restoreSpans(rewritten.text, protectedDoc.spans);
+    if (output.trim() === "") {
+      return unchangedContentResult(input, {
+        code: "nothing_to_tidy",
+        severity: "info",
+        message: "No safe transformation was available; the prompt was left unchanged."
+      });
+    }
     const fidelityWarnings = validateFidelity(input, output, protectedDoc.spans);
     const metrics = buildMetrics(input, output);
     const lengthWarnings = metrics.charactersAfter > metrics.charactersBefore

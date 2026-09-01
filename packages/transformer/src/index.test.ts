@@ -74,4 +74,60 @@ describe("transform", () => {
     expect(result.output).toBe("Review .\\src\\app.ts with version 1.2.3.");
     expect(result.safeToReplace).toBe(true);
   });
+
+  it.each([
+    ["Please review ``const x =  1`` exactly.", "Review ``const x =  1`` exactly."],
+    [
+      "Please review ````const x = ```value```  +  1```` exactly.",
+      "Review ````const x = ```value```  +  1```` exactly."
+    ]
+  ])("preserves delimiter-run inline code through the public API", (input, expected) => {
+    const result = transform(input, { mode: "compact", locale: "en" });
+
+    expect(result.output).toBe(expected);
+    expect(result.safeToReplace).toBe(true);
+  });
+
+  it("fails closed through the public API for an unclosed multi-backtick span", () => {
+    const input = "Please review ``const x =  1` exactly.";
+    const result = transform(input, { mode: "compact", locale: "en" });
+
+    expect(result.output).toBe(input);
+    expect(result.safeToReplace).toBe(false);
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      category: "inline_code",
+      severity: "error"
+    }));
+  });
+
+  it("preserves Markdown-indented code byte-for-byte through the public API", () => {
+    const input = [
+      "Review this code:",
+      "    const x =  1;",
+      "",
+      "    return x;"
+    ].join("\n");
+    const result = transform(input, { mode: "compact", locale: "en" });
+
+    expect(result.output).toBe(input);
+    expect(result.safeToReplace).toBe(true);
+  });
+
+  it.each([
+    ["请你", "zh", "compact"],
+    ["请你", "zh", "structured"],
+    ["basically,", "en", "compact"],
+    ["basically,", "en", "structured"]
+  ] as const)("keeps non-empty filler-only input %s unchanged for %s locale in %s mode", (input, locale, mode) => {
+    const result = transform(input, { mode, locale });
+
+    expect(result.output).toBe(input);
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "nothing_to_tidy",
+      severity: "info"
+    }));
+    expect(result.metrics.charactersAfter).toBe(input.length);
+    expect(result.safeToReplace).toBe(true);
+  });
 });

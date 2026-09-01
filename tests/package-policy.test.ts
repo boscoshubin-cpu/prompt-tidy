@@ -23,10 +23,21 @@ async function makePackageManifest(
   ]);
   const manifest = {
     manifest_version: 3,
+    name: "Prompt Tidy",
+    version: "0.1.0",
+    description: "Locally tidy ChatGPT drafts before you send them.",
     permissions: ["storage"],
     host_permissions: ["https://chatgpt.com/*"],
-    content_scripts: [{ matches: ["https://chatgpt.com/*"], js: ["content.js"] }],
-    action: { default_popup: "popup.html" },
+    content_scripts: [{
+      matches: ["https://chatgpt.com/*"],
+      js: ["content.js"],
+      run_at: "document_idle",
+      world: "ISOLATED"
+    }],
+    action: {
+      default_title: "Prompt Tidy",
+      default_popup: "popup.html"
+    },
     ...overrides
   };
 
@@ -84,6 +95,73 @@ describe("package policy", () => {
   });
 
   it.each([
+    [
+      "MAIN-world content script",
+      {
+        content_scripts: [{
+          matches: ["https://chatgpt.com/*"],
+          js: ["content.js"],
+          run_at: "document_idle",
+          world: "MAIN"
+        }]
+      },
+      "content_scripts must exactly equal"
+    ],
+    [
+      "document_start content script",
+      {
+        content_scripts: [{
+          matches: ["https://chatgpt.com/*"],
+          js: ["content.js"],
+          run_at: "document_start",
+          world: "ISOLATED"
+        }]
+      },
+      "content_scripts must exactly equal"
+    ],
+    [
+      "extra content-script field",
+      {
+        content_scripts: [{
+          matches: ["https://chatgpt.com/*"],
+          js: ["content.js"],
+          run_at: "document_idle",
+          world: "ISOLATED",
+          all_frames: true
+        }]
+      },
+      "content_scripts must exactly equal"
+    ],
+    [
+      "extra action field",
+      {
+        action: {
+          default_title: "Prompt Tidy",
+          default_popup: "popup.html",
+          default_icon: "icon.png"
+        }
+      },
+      "action must exactly equal"
+    ],
+    [
+      "Chrome URL override",
+      { chrome_url_overrides: { newtab: "popup.html" } },
+      "unexpected manifest field: chrome_url_overrides"
+    ],
+    [
+      "Manifest V2 downgrade",
+      { manifest_version: 2 },
+      "manifest_version must equal 3"
+    ]
+  ] as const)("rejects manifest mutation: %s", async (_label, overrides, message) => {
+    const packageRoot = await makePackageManifest(overrides);
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining(message)
+    });
+  });
+
+  it.each([
     ["HTML image", "popup.html", '<img src="https://tracker.example/pixel.png">'],
     ["WebSocket URL", "content.js", 'new WebSocket("wss://socket.example/events")'],
     ["protocol-relative CSS URL", "styles/theme.css", "body{background:url(//cdn.example/pixel.png)}"],
@@ -113,6 +191,7 @@ describe("package policy", () => {
   it.each([
     "new Function('return 1')",
     "Function('return 1')",
+    "Function/* audit */('return 1')",
     "// function\nFunction('return 1')",
     "obj.function\nFunction('return 1')",
     'const obj = { 𐐀function: 1 }; obj.𐐀function\nFunction("return 1")',
@@ -122,13 +201,17 @@ describe("package policy", () => {
     "window.Function('return 1')",
     "new globalThis.Function('return 1')",
     "globalThis.Function('return 1')",
+    "globalThis[\"Function\"]('return 1')",
+    "window /* audit */ ['Function']('return 1')",
     "setTimeout('globalThis.compromised = true', 0)",
     'setTimeout("globalThis.compromised = true", 0)',
     "setTimeout(`globalThis.compromised = true`, 0)",
     "setInterval('globalThis.compromised = true', 0)",
     "setInterval(`globalThis.compromised = true`, 0)",
     'setTimeout(/* audit */ "globalThis.compromised = true", 0)',
-    "setInterval(/* audit */ `globalThis.compromised = true`, 0)"
+    "setInterval(/* audit */ `globalThis.compromised = true`, 0)",
+    "setTimeout/* audit */('globalThis.compromised = true', 0)",
+    "setInterval/* audit */(`globalThis.compromised = true`, 0)"
   ])("rejects a packaged dynamic execution variant", async (contents) => {
     const packageRoot = await makePackageManifest({}, { "content.js": contents });
 
@@ -139,6 +222,7 @@ describe("package policy", () => {
 
   it.each([
     "custom.Function(1)",
+    "custom['Function'](1)",
     "function Function() {}",
     "function/* audit */Function() {}"
   ])("allows a non-global Function reference that is not an execution surface", async (contents) => {

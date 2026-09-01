@@ -163,6 +163,23 @@ describe("structured mode", () => {
     expect(result.safeToReplace).toBe(true);
   });
 
+  it.each([
+    ["config.apiEndpoint", "Task: Review config.apiEndpoint. Audience: Developers."],
+    ["api.example.com", "Task: Review api.example.com. Audience: Developers."],
+    ["client.auth.token", "Task: Review client.auth.token. Audience: Developers."]
+  ])("keeps dotted atom %s intact in Structured mode", (atom, input) => {
+    const result = transform(input, { mode: "structured", locale: "en" });
+
+    expect(result.output).toBe([
+      "## Task",
+      `Review ${atom}.`,
+      "",
+      "## Audience",
+      "Developers."
+    ].join("\n"));
+    expect(result.safeToReplace).toBe(true);
+  });
+
   it("preserves tilde fences and relative paths in Structured mode", () => {
     const fence = ["~~~js", "  import app from './src/app.ts';", "~~~~"].join("\n");
     const input = `Task: Review ./src/app.ts. Background: Use this code:\n${fence}`;

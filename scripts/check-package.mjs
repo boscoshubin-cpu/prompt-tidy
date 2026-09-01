@@ -19,6 +19,16 @@ const allowedNamespaceUrls = new Set([
   "http://www.w3.org/2000/svg"
 ]);
 const requiredProductionHost = "https://chatgpt.com/*";
+const requiredManifestFields = new Set([
+  "action",
+  "content_scripts",
+  "description",
+  "host_permissions",
+  "manifest_version",
+  "name",
+  "permissions",
+  "version"
+]);
 const scannedAssetExtensions = new Set([".css", ".cjs", ".html", ".js", ".json", ".mjs"]);
 const forbiddenManifestSurfaces = [
   "background",
@@ -43,15 +53,28 @@ const networkSurfacePatterns = [
 ];
 const executionSurfacePatterns = [
   /\beval\s*\(/u,
-  /\bset(?:Timeout|Interval)\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))\s*)*(?:(["'])[^]*?\1|`[^]*?`)/u,
   /\bWebAssembly\s*\.(?:compile|instantiate)\s*\(/u,
   /\bjavascript\s*:/iu,
   /\bdata\s*:\s*text\/javascript/iu
 ];
 const functionConstructionPattern = /(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*\.\s*)?Function\s*\(/gu;
+const bracketFunctionConstructionPattern = /(?<![\p{L}\p{N}_$])(?:new(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))+)?(?:window|globalThis)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\[(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(["'`])Function\1(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\](?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\(/gu;
+const timerStringExecutionPattern = /\bset(?:Timeout|Interval)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:(["'])[^]*?\1|`[^]*?`)/gu;
 
 function fail(message) {
   throw new Error(`Prompt Tidy package policy: FAIL — ${message}`);
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactFields(value, expectedFields) {
+  if (!isRecord(value)) return false;
+  const actualFields = Object.keys(value).sort();
+  const expected = [...expectedFields].sort();
+  return actualFields.length === expected.length
+    && actualFields.every((field, index) => field === expected[index]);
 }
 
 async function listPackageFiles(directory) {
@@ -178,7 +201,7 @@ function hasFunctionDeclarationPrefix(source, functionOffset) {
 function hasFunctionConstructionSurface(source) {
   const declarationView = declarationSourceView(source);
 
-  for (const match of source.matchAll(functionConstructionPattern)) {
+  for (const match of declarationView.matchAll(functionConstructionPattern)) {
     const value = match[0];
     const matchIndex = match.index ?? 0;
     const functionOffset = matchIndex + value.lastIndexOf("Function");
@@ -186,6 +209,23 @@ function hasFunctionConstructionSurface(source) {
   }
 
   return false;
+}
+
+function startsInExecutableCode(declarationView, match) {
+  const offset = match.index ?? 0;
+  return /[$\p{ID_Start}]/u.test(declarationView[offset] ?? "");
+}
+
+function hasBracketFunctionConstructionSurface(source) {
+  const declarationView = declarationSourceView(source);
+  return [...source.matchAll(bracketFunctionConstructionPattern)]
+    .some((match) => startsInExecutableCode(declarationView, match));
+}
+
+function hasTimerStringExecutionSurface(source) {
+  const declarationView = declarationSourceView(source);
+  return [...source.matchAll(timerStringExecutionPattern)]
+    .some((match) => startsInExecutableCode(declarationView, match));
 }
 
 function remoteReferences(source) {
@@ -223,13 +263,53 @@ function verifyAssetSource(path, source) {
     fail(`unexpected network surface found in ${displayPath}`);
   }
 
-  if (hasFunctionConstructionSurface(source) || executionSurfacePatterns.some((pattern) => pattern.test(source))) {
+  if (
+    hasFunctionConstructionSurface(source)
+    || hasBracketFunctionConstructionSurface(source)
+    || hasTimerStringExecutionSurface(source)
+    || executionSurfacePatterns.some((pattern) => pattern.test(source))
+  ) {
     fail(`unexpected execution surface found in ${displayPath}`);
   }
 }
 
 async function verifyPackage() {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  if (!isRecord(manifest)) fail("manifest must be a JSON object");
+  if (manifest.manifest_version !== 3) fail("manifest_version must equal 3");
+
+  for (const surface of forbiddenManifestSurfaces) {
+    if (manifest[surface] !== undefined) {
+      fail(`${surface} manifest surface is forbidden`);
+    }
+  }
+
+  if (manifest.optional_permissions !== undefined) {
+    fail("optional_permissions are forbidden");
+  }
+
+  if (manifest.optional_host_permissions !== undefined) {
+    fail("optional_host_permissions are forbidden");
+  }
+
+  const unexpectedManifestField = Object.keys(manifest)
+    .find((field) => !requiredManifestFields.has(field));
+  if (unexpectedManifestField) {
+    fail(`unexpected manifest field: ${unexpectedManifestField}`);
+  }
+  const missingManifestField = [...requiredManifestFields]
+    .find((field) => manifest[field] === undefined);
+  if (missingManifestField) {
+    fail(`missing manifest field: ${missingManifestField}`);
+  }
+  if (manifest.name !== "Prompt Tidy") fail("name must equal 'Prompt Tidy'");
+  if (manifest.description !== "Locally tidy ChatGPT drafts before you send them.") {
+    fail("description must match the reviewed production description");
+  }
+  if (typeof manifest.version !== "string" || !/^(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){0,3}$/u.test(manifest.version)) {
+    fail("version must be a dotted numeric Chrome extension version");
+  }
+
   const hostPermissions = manifest.host_permissions;
   if (
     !Array.isArray(hostPermissions)
@@ -239,21 +319,31 @@ async function verifyPackage() {
     fail("host_permissions must equal ['https://chatgpt.com/*']");
   }
 
-  for (const surface of forbiddenManifestSurfaces) {
-    if (manifest[surface] !== undefined) {
-      fail(`${surface} manifest surface is forbidden`);
-    }
-  }
-
   const contentScripts = manifest.content_scripts;
+  const contentScript = contentScripts?.[0];
   if (
     !Array.isArray(contentScripts)
     || contentScripts.length !== 1
-    || !Array.isArray(contentScripts[0]?.matches)
-    || contentScripts[0].matches.length !== 1
-    || contentScripts[0].matches[0] !== requiredProductionHost
+    || !hasExactFields(contentScript, ["js", "matches", "run_at", "world"])
+    || !Array.isArray(contentScript.matches)
+    || contentScript.matches.length !== 1
+    || contentScript.matches[0] !== requiredProductionHost
+    || !Array.isArray(contentScript.js)
+    || contentScript.js.length !== 1
+    || contentScript.js[0] !== "content.js"
+    || contentScript.run_at !== "document_idle"
+    || contentScript.world !== "ISOLATED"
   ) {
-    fail("content-script matches must remain scoped to https://chatgpt.com/*");
+    fail("content_scripts must exactly equal the reviewed isolated document_idle content script");
+  }
+
+  const action = manifest.action;
+  if (
+    !hasExactFields(action, ["default_popup", "default_title"])
+    || action.default_popup !== "popup.html"
+    || action.default_title !== "Prompt Tidy"
+  ) {
+    fail("action must exactly equal the reviewed popup action");
   }
 
   const declaredPermissions = [
@@ -265,14 +355,6 @@ async function verifyPackage() {
   const forbidden = declaredPermissions.filter((permission) => forbiddenPermissions.has(permission));
   if (forbidden.length > 0) {
     fail(`forbidden permission(s): ${forbidden.join(", ")}`);
-  }
-
-  if (manifest.optional_permissions !== undefined) {
-    fail("optional_permissions are forbidden");
-  }
-
-  if (manifest.optional_host_permissions !== undefined) {
-    fail("optional_host_permissions are forbidden");
   }
 
   for (const requiredAsset of ["content.js", "popup.html", "popup.js"]) {

@@ -103,6 +103,37 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
+  it.each([
+    ["double", "Review ``const x =  1`` exactly.", "``const x =  1``"],
+    ["four", "Review ````const x = ```value```  +  1```` exactly.", "````const x = ```value```  +  1````"]
+  ])("protects a valid %s-backtick code span as one exact value", (_label, input, expected) => {
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "inline_code").map(({ value }) => value)).toEqual([
+      expected
+    ]);
+    expect(protectedDoc.issues).toEqual([]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
+  it("marks an unclosed multi-backtick code span as ambiguous", () => {
+    const protectedDoc = protectSpans("Review ``const x =  1` exactly.");
+
+    expect(protectedDoc.issues).toContainEqual({
+      category: "inline_code",
+      reason: "ambiguous_syntax"
+    });
+  });
+
+  it("protects a Markdown-indented code block byte-for-byte", () => {
+    const block = ["    const x =  1;", "", "    return x;"].join("\n");
+    const input = `Review this code:\n${block}\nThen summarize it.`;
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "code_block").map(({ value }) => value)).toContain(block);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
   it("marks an unclosed Markdown fence as ambiguous instead of treating its body as prose", () => {
     const protectedDoc = protectSpans("Review this:\n~~~js\nconst total = 1,234.56;");
 

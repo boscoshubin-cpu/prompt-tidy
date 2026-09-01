@@ -128,6 +128,19 @@ describe("validateFidelity", () => {
     expect(warnings).toContainEqual(expect.objectContaining({ category: "number", severity: "error" }));
   });
 
+  it.each([
+    ["Review config.apiEndpoint now.", "Review config. apiEndpoint now."],
+    ["Review api.example.com now.", "Review api. example. com now."],
+    ["Review client.auth.token now.", "Review client.auth. token now."]
+  ])("independently detects dotted atom corruption in %s", (before, after) => {
+    const warnings = validateFidelity(before, after, []);
+
+    expect(warnings).toContainEqual(expect.objectContaining({
+      category: "dotted_atom",
+      severity: "error"
+    }));
+  });
+
   it("rejects a Windows-relative path when its required leading boundary is removed", () => {
     const before = "Review .\\src\\app.ts now.";
     const after = "Review.\\src\\app.ts now.";

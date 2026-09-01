@@ -49,6 +49,16 @@ describe("popup compatibility status", () => {
     expect(get).toHaveBeenCalledWith("compatibilityStatus");
   });
 
+  it("labels stored compatibility as a last-known result, not the active tab state", async () => {
+    await renderStoredStatus({
+      state: "supported",
+      adapterVersion: "1",
+      checkedAt: "2026-08-29T00:00:00.000Z"
+    });
+
+    expect(screen.getByRole("status").textContent).toMatch(/^最近一次检测：/u);
+  });
+
   it("renders the unsupported ChatGPT composer state", async () => {
     await renderStoredStatus({
       state: "unsupported",
