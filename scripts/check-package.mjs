@@ -158,6 +158,23 @@ function declarationSourceView(source) {
   return view;
 }
 
+function hasFunctionDeclarationPrefix(source, functionOffset) {
+  const prefix = source.slice(0, functionOffset);
+  const keywordMatch = /function\s*$/u.exec(prefix);
+  if (!keywordMatch) return false;
+
+  const characterBeforeKeyword = source[keywordMatch.index - 1];
+  if (characterBeforeKeyword && /[$\p{ID_Continue}\u200C\u200D]/u.test(characterBeforeKeyword)) {
+    return false;
+  }
+
+  const precedingCode = source.slice(0, keywordMatch.index).trimEnd();
+  if (precedingCode.endsWith("#")) return false;
+  if (precedingCode.endsWith(".") && !precedingCode.endsWith("...")) return false;
+
+  return true;
+}
+
 function hasFunctionConstructionSurface(source) {
   const declarationView = declarationSourceView(source);
 
@@ -165,7 +182,7 @@ function hasFunctionConstructionSurface(source) {
     const value = match[0];
     const matchIndex = match.index ?? 0;
     const functionOffset = matchIndex + value.lastIndexOf("Function");
-    if (!/\bfunction\s*$/u.test(declarationView.slice(0, functionOffset))) return true;
+    if (!hasFunctionDeclarationPrefix(declarationView, functionOffset)) return true;
   }
 
   return false;
