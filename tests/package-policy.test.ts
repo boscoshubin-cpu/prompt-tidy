@@ -115,6 +115,7 @@ describe("package policy", () => {
     "Function('return 1')",
     "// function\nFunction('return 1')",
     "obj.function\nFunction('return 1')",
+    'const obj = { 𐐀function: 1 }; obj.𐐀function\nFunction("return 1")',
     "obj. /* audit */ function\nFunction('return 1')",
     "class Example { #function = 1; run() { this.#function\nFunction('return 1') } }\nnew Example().run()",
     "new window.Function('return 1')",

@@ -163,7 +163,7 @@ function hasFunctionDeclarationPrefix(source, functionOffset) {
   const keywordMatch = /function\s*$/u.exec(prefix);
   if (!keywordMatch) return false;
 
-  const characterBeforeKeyword = source[keywordMatch.index - 1];
+  const characterBeforeKeyword = [...source.slice(0, keywordMatch.index)].at(-1);
   if (characterBeforeKeyword && /[$\p{ID_Continue}\u200C\u200D]/u.test(characterBeforeKeyword)) {
     return false;
   }
