@@ -100,6 +100,45 @@ describe("transform", () => {
     }));
   });
 
+  it.each(["compact", "structured"] as const)(
+    "fails closed in %s mode for an unclosed line fence containing embedded triple backticks",
+    (mode) => {
+      const marker = "```";
+      const input = [
+        "Please review this code:",
+        `${marker}js`,
+        `const marker = "${marker}";`,
+        "const x =  1;"
+      ].join("\n");
+      const result = transform(input, { mode, locale: "en" });
+
+      expect(result.output).toBe(input);
+      expect(result.safeToReplace).toBe(false);
+      expect(result.warnings).toContainEqual(expect.objectContaining({
+        category: "code_block",
+        severity: "error"
+      }));
+    }
+  );
+
+  it.each(["compact", "structured"] as const)(
+    "preserves the closed control line fence containing embedded triple backticks in %s mode",
+    (mode) => {
+      const marker = "```";
+      const block = [
+        `${marker}js`,
+        `const marker = "${marker}";`,
+        "const x =  1;",
+        marker
+      ].join("\n");
+      const result = transform(`Task: Review this code.\n${block}`, { mode, locale: "en" });
+
+      expect(result.output).toContain(block);
+      expect(result.safeToReplace).toBe(true);
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ severity: "error" }));
+    }
+  );
+
   it("preserves Markdown-indented code byte-for-byte through the public API", () => {
     const input = [
       "Review this code:",

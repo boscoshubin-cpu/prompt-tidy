@@ -103,6 +103,41 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
+  it("keeps an unclosed line fence ambiguous when its body contains embedded triple backticks", () => {
+    const marker = "```";
+    const input = [
+      "Review this code:",
+      `${marker}js`,
+      `const marker = "${marker}";`,
+      "const x =  1;"
+    ].join("\n");
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "code_block")).toEqual([]);
+    expect(protectedDoc.issues).toContainEqual({
+      category: "code_block",
+      reason: "ambiguous_syntax"
+    });
+  });
+
+  it("protects a closed line fence containing embedded triple backticks as one exact block", () => {
+    const marker = "```";
+    const block = [
+      `${marker}js`,
+      `const marker = "${marker}";`,
+      "const x =  1;",
+      marker
+    ].join("\n");
+    const input = `Review this code:\n${block}`;
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "code_block").map(({ value }) => value)).toEqual([
+      block
+    ]);
+    expect(protectedDoc.issues).toEqual([]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
   it.each([
     ["double", "Review ``const x =  1`` exactly.", "``const x =  1``"],
     ["four", "Review ````const x = ```value```  +  1```` exactly.", "````const x = ```value```  +  1````"]

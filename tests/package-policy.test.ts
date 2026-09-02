@@ -231,6 +231,54 @@ describe("package policy", () => {
     await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
   });
 
+  it.each([
+    [
+      "direct Function call",
+      "const audit = `result: ${Function('return 1')}`;"
+    ],
+    [
+      "string timer call",
+      "const audit = `result: ${setTimeout('globalThis.compromised = true', 0)}`;"
+    ],
+    [
+      "nested template string timer call",
+      'const audit = `outer ${setInterval(`globalThis.compromised = true`, 0)}`;'
+    ],
+    [
+      "nested template interpolation",
+      'const audit = `outer ${`inner ${Function("return 1")}`}`;'
+    ],
+    [
+      "escaped backtick before bracket Function call",
+      'const audit = `escaped \\` quasi ${globalThis["Function"]("return 1")}`;'
+    ]
+  ])("rejects a packaged %s inside template interpolation", async (_label, contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
+  it.each([
+    [
+      "ordinary quasi text",
+      "const note = `Function('return 1') and setTimeout('globalThis.compromised = true', 0)`;"
+    ],
+    [
+      "escaped interpolation text",
+      'const note = `escaped \\${Function("return 1")} text`;'
+    ],
+    [
+      "string value inside interpolation",
+      'const note = `${"Function(\\"return 1\\")"}`;'
+    ]
+  ])("allows non-executable Function text in template literal %s", async (_label, contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
+  });
+
   it("rejects an externally connectable manifest surface", async () => {
     const packageRoot = await makePackageManifest({
       externally_connectable: { matches: ["https://example.com/*"] }

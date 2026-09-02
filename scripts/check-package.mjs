@@ -126,26 +126,68 @@ function sourceViews(source) {
 function declarationSourceView(source) {
   let view = "";
   let index = 0;
-  let quote;
+  const contexts = [{ kind: "code" }];
+  const maskedCharacter = (character) => (
+    character === "\n" || character === "\r" ? character : " "
+  );
 
   while (index < source.length) {
     const character = source[index];
     const next = source[index + 1];
+    const context = contexts.at(-1);
 
-    if (quote) {
+    if (context?.kind === "string") {
       if (character === "\\") {
-        view += "  ";
-        index += 2;
+        view += maskedCharacter(character);
+        index += 1;
+        if (index < source.length) {
+          view += maskedCharacter(source[index]);
+          index += 1;
+        }
         continue;
       }
-      view += character === "\n" || character === "\r" ? character : " ";
-      if (character === quote) quote = undefined;
+      view += maskedCharacter(character);
+      if (character === context.delimiter) contexts.pop();
       index += 1;
       continue;
     }
 
-    if (character === "'" || character === '"' || character === "`") {
-      quote = character;
+    if (context?.kind === "template") {
+      if (character === "\\") {
+        view += maskedCharacter(character);
+        index += 1;
+        if (index < source.length) {
+          view += maskedCharacter(source[index]);
+          index += 1;
+        }
+        continue;
+      }
+      if (character === "`") {
+        view += " ";
+        contexts.pop();
+        index += 1;
+        continue;
+      }
+      if (character === "$" && next === "{") {
+        view += "  ";
+        contexts.push({ kind: "interpolation", braceDepth: 0 });
+        index += 2;
+        continue;
+      }
+      view += maskedCharacter(character);
+      index += 1;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      contexts.push({ kind: "string", delimiter: character });
+      view += " ";
+      index += 1;
+      continue;
+    }
+
+    if (character === "`") {
+      contexts.push({ kind: "template" });
       view += " ";
       index += 1;
       continue;
@@ -172,6 +214,20 @@ function declarationSourceView(source) {
         }
       }
       continue;
+    }
+
+    if (context?.kind === "interpolation") {
+      if (character === "{") {
+        context.braceDepth += 1;
+      } else if (character === "}") {
+        if (context.braceDepth === 0) {
+          view += " ";
+          contexts.pop();
+          index += 1;
+          continue;
+        }
+        context.braceDepth -= 1;
+      }
     }
 
     view += character;

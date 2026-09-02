@@ -182,7 +182,8 @@ function findMarkdownFenceCandidates(
   for (const opening of input.matchAll(openingPattern)) {
     const start = opening.index ?? 0;
     if (start < protectedThrough) continue;
-    if (rangeContaining(start, existingRanges)) continue;
+    const existingRange = rangeContaining(start, existingRanges);
+    if (existingRange && existingRange.start < start) continue;
 
     const marker = opening[2];
     if (!marker) continue;
@@ -403,9 +404,17 @@ function findInlineCodeCandidates(
 }
 
 function findCandidates(input: string): CandidateScan {
-  const legacyTriple = findLegacyTripleBacktickCandidates(input);
-  const fenced = findMarkdownFenceCandidates(input, legacyTriple.blockedRanges);
-  const preIndentedRanges = [...legacyTriple.blockedRanges, ...fenced.blockedRanges];
+  const legacyTripleScan = findLegacyTripleBacktickCandidates(input);
+  const fenced = findMarkdownFenceCandidates(input, legacyTripleScan.blockedRanges);
+  const legacyCandidates = legacyTripleScan.candidates.filter(
+    ({ start }) => !rangeContaining(start, fenced.blockedRanges)
+  );
+  const legacyTriple: CandidateScan = {
+    candidates: legacyCandidates,
+    issues: legacyTripleScan.issues,
+    blockedRanges: legacyCandidates.map(({ start, end }) => ({ start, end }))
+  };
+  const preIndentedRanges = [...fenced.blockedRanges, ...legacyTriple.blockedRanges];
   const indented = findMarkdownIndentedCodeCandidates(input, preIndentedRanges);
   const codeBlockRanges = [...preIndentedRanges, ...indented.blockedRanges];
   const inline = findInlineCodeCandidates(input, codeBlockRanges);
@@ -447,7 +456,7 @@ function findCandidates(input: string): CandidateScan {
 
   return {
     candidates: selected,
-    issues: [...legacyTriple.issues, ...fenced.issues, ...indented.issues, ...inline.issues],
+    issues: [...fenced.issues, ...legacyTriple.issues, ...indented.issues, ...inline.issues],
     blockedRanges: [...codeBlockRanges, ...inline.blockedRanges]
   };
 }
