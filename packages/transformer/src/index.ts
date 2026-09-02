@@ -177,7 +177,11 @@ export function transform(input: string, options: TransformOptions): TransformRe
     const normalized = normalizeText(protectedDoc.text);
     const compacted = compactText(normalized.text, locale);
     const rewritten = options.mode === "structured"
-      ? structureText(addExplicitConstraintMarkers(compacted.text, protectedDoc.spans, locale), locale)
+      ? structureText(
+          addExplicitConstraintMarkers(compacted.text, protectedDoc.spans, locale),
+          locale,
+          protectedDoc.spans
+        )
       : compacted;
     const output = restoreSpans(rewritten.text, protectedDoc.spans);
     if (output.trim() === "") {

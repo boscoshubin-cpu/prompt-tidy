@@ -1,4 +1,4 @@
-import { fireEvent } from "@testing-library/preact";
+import { act, fireEvent } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chatGptAdapter, type ComposerAdapter } from "../chatgpt/adapter";
@@ -9,6 +9,7 @@ import { mountPromptTidy } from "./mount";
 describe("mountPromptTidy", () => {
   afterEach(() => {
     document.body.replaceChildren();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -131,5 +132,48 @@ describe("mountPromptTidy", () => {
     expect(document.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
     expect(replacementFooter.querySelector("[data-prompt-tidy-root='true']")).not.toBeNull();
     stop();
+  });
+
+  it("unmounts the first App and its input listener when a second connected composer becomes active", async () => {
+    const firstForm = document.createElement("form");
+    firstForm.dataset.type = "composer";
+    firstForm.innerHTML = [
+      '<div contenteditable="true" role="textbox">First draft</div>',
+      '<div data-testid="composer-footer"><button type="submit">Send</button></div>'
+    ].join("");
+    const secondForm = document.createElement("form");
+    secondForm.dataset.type = "composer";
+    secondForm.innerHTML = [
+      '<div contenteditable="true" role="textbox">Second draft</div>',
+      '<div data-testid="composer-footer"><button type="submit">Send</button></div>'
+    ].join("");
+    document.body.append(firstForm, secondForm);
+    const firstComposer = firstForm.querySelector<HTMLElement>("[role='textbox']")!;
+    const secondComposer = secondForm.querySelector<HTMLElement>("[role='textbox']")!;
+    const modeStore: ModeStore = { get: vi.fn().mockResolvedValue("compact"), set: vi.fn() };
+    const readDraft = vi.spyOn(chatGptAdapter, "readDraft");
+    await act(() => {
+      expect(mountPromptTidy({ adapter: chatGptAdapter, composer: firstComposer, modeStore })).not.toBeNull();
+    });
+    readDraft.mockClear();
+    fireEvent.input(firstComposer);
+    expect(readDraft).toHaveBeenCalledTimes(1);
+
+    await act(() => {
+      expect(mountPromptTidy({ adapter: chatGptAdapter, composer: secondComposer, modeStore })).not.toBeNull();
+    });
+    readDraft.mockClear();
+    fireEvent.input(secondComposer);
+    expect(readDraft).toHaveBeenCalledTimes(1);
+
+    readDraft.mockClear();
+    fireEvent.input(firstComposer);
+    expect.soft(readDraft).not.toHaveBeenCalled();
+    fireEvent.input(secondComposer);
+
+    expect(readDraft).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll("[data-prompt-tidy-root='true']")).toHaveLength(1);
+    expect(firstForm.querySelector("[data-prompt-tidy-root='true']")).toBeNull();
+    expect(secondForm.querySelector("[data-prompt-tidy-root='true']")).not.toBeNull();
   });
 });

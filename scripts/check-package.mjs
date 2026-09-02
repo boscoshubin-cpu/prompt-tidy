@@ -57,9 +57,9 @@ const executionSurfacePatterns = [
   /\bjavascript\s*:/iu,
   /\bdata\s*:\s*text\/javascript/iu
 ];
-const functionConstructionPattern = /(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*\.\s*)?Function\s*\(/gu;
+const functionConstructionPattern = /(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*(?:\.|\?\.)\s*)?Function\s*\(/gu;
 const bracketFunctionConstructionPattern = /(?<![\p{L}\p{N}_$])(?:new(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))+)?(?:window|globalThis)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\[(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(["'`])Function\1(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\](?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\(/gu;
-const timerStringExecutionPattern = /\bset(?:Timeout|Interval)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:(["'])[^]*?\1|`[^]*?`)/gu;
+const timerStringExecutionPattern = /\bset(?:Timeout|Interval)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:\?\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)?\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:(["'])[^]*?\1|`[^]*?`)/gu;
 
 function fail(message) {
   throw new Error(`Prompt Tidy package policy: FAIL — ${message}`);

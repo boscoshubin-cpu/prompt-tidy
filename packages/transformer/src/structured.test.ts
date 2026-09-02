@@ -190,6 +190,37 @@ describe("structured mode", () => {
     expect(result.safeToReplace).toBe(true);
   });
 
+  it.each([
+    ["three-backtick", ["```ts", "const answer = 42;", "```"].join("\n")],
+    ["four-backtick", ["````markdown", "```nested```", "````"].join("\n")],
+    ["tilde", ["~~~ts", "const answer = 42;", "~~~~"].join("\n")]
+  ])("keeps a %s line fence in its explicit Structured section", (_label, fence) => {
+    const input = [
+      "Task: Review the sample.",
+      "Background: Use this code:",
+      fence,
+      "Audience: Maintainers.",
+      "Output format: Return a checklist."
+    ].join("\n");
+    const result = transform(input, { mode: "structured", locale: "en" });
+
+    expect(result.output).toBe([
+      "## Task",
+      "Review the sample.",
+      "",
+      "## Background",
+      "Use this code:",
+      fence,
+      "",
+      "## Audience",
+      "Maintainers.",
+      "",
+      "## Output Format",
+      "- Return a checklist."
+    ].join("\n"));
+    expect(result.safeToReplace).toBe(true);
+  });
+
   it("leaves an unclosed fence unchanged and blocks replacement", () => {
     const input = "Task: Review this code.\n~~~js\nconst total = 1,234.56;";
     const result = transform(input, { mode: "structured", locale: "en" });

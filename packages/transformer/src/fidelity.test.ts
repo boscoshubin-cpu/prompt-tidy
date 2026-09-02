@@ -148,6 +148,17 @@ describe("validateFidelity", () => {
 
     expect(warnings).toContainEqual(expect.objectContaining({ category: "path", severity: "error" }));
   });
+
+  it("rejects an exact fenced block moved off its opening line boundary", () => {
+    const fence = ["```ts", "const answer = 42;", "```"].join("\n");
+    const before = `Background:\n${fence}\nAudience: Maintainers.`;
+    const after = `Background: ${fence}\nAudience: Maintainers.`;
+
+    expect(after).toContain(fence);
+    expect(validateFidelity(before, after, protectSpans(before).spans)).toContainEqual(
+      expect.objectContaining({ category: "code_block", severity: "error" })
+    );
+  });
 });
 
 describe("fidelity invariant", () => {

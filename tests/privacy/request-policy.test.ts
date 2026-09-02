@@ -34,4 +34,10 @@ describe("privacy request policy", () => {
       /Unexpected application request/u
     );
   });
+
+  it("negative control makes empty request evidence fail the real assertion", () => {
+    expect(() => assertOnlyInitialFixtureNavigation([], fixtureUrl)).toThrow(
+      /Missing initial fixture navigation evidence/u
+    );
+  });
 });

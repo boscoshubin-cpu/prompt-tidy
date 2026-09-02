@@ -6,7 +6,7 @@ import { App } from "../ui/app";
 import { promptTidyStyles } from "../ui/styles";
 
 const mountedApps = new WeakMap<HTMLElement, HTMLElement>();
-const composerHosts = new WeakMap<HTMLElement, HTMLElement>();
+let activeMount: { composer: HTMLElement; host: HTMLElement } | undefined;
 
 export interface MountPromptTidyOptions {
   adapter: ComposerAdapter;
@@ -21,6 +21,7 @@ function removePromptTidyRoot(host: HTMLElement): void {
     ?? host.shadowRoot?.querySelector<HTMLElement>("[data-prompt-tidy-app='true']");
   if (appRoot) render(null, appRoot);
   mountedApps.delete(host);
+  if (activeMount?.host === host) activeMount = undefined;
   host.remove();
 }
 
@@ -34,8 +35,7 @@ export function mountPromptTidy({
   const mountPoint = adapter.findMountPoint(composer);
   if (!mountPoint) return null;
 
-  const previousHost = composerHosts.get(composer);
-  if (previousHost) removePromptTidyRoot(previousHost);
+  if (activeMount) removePromptTidyRoot(activeMount.host);
 
   for (const root of Array.from(mountPoint.children)) {
     if (root instanceof HTMLElement && root.dataset.promptTidyRoot === "true") {
@@ -53,7 +53,6 @@ export function mountPromptTidy({
   shadowRoot.append(style, appRoot);
   mountPoint.append(host);
   mountedApps.set(host, appRoot);
-  composerHosts.set(composer, host);
 
   render(
     <App
@@ -65,5 +64,6 @@ export function mountPromptTidy({
     />,
     appRoot
   );
+  activeMount = { composer, host };
   return host;
 }

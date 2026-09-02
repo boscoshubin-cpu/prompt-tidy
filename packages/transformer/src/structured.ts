@@ -1,4 +1,5 @@
 import type { RewriteStageResult } from "./normalize";
+import type { ProtectedSpan } from "./protect";
 import type { ChangeSummary, Locale } from "./types";
 
 type Section = "task" | "background" | "audience" | "requirements" | "constraints" | "output";
@@ -8,6 +9,11 @@ interface Marker {
   section: Section;
   pattern: RegExp;
   language: HeadingLocale;
+}
+
+interface SectionValue {
+  content: string;
+  kind: "code_block" | "prose";
 }
 
 const SECTION_ORDER: readonly Section[] = [
@@ -100,14 +106,37 @@ function isBulleted(section: Section): boolean {
   return section === "requirements" || section === "constraints" || section === "output";
 }
 
+function renderSectionBody(section: Section, values: readonly SectionValue[]): string {
+  if (isBulleted(section)) {
+    return values
+      .map((value) => value.kind === "code_block" ? value.content : `- ${value.content}`)
+      .join("\n");
+  }
+
+  return values.reduce((body, value, index) => {
+    if (index === 0) return value.content;
+    const previous = values[index - 1];
+    const separator = value.kind === "code_block" || previous?.kind === "code_block" ? "\n" : " ";
+    return `${body}${separator}${value.content}`;
+  }, "");
+}
+
 /**
  * Groups only clauses with an explicit marker. Unmarked clauses remain in the
  * active standalone section when present, otherwise in Task, so structure
  * never discards or invents prompt content.
  */
-export function structureText(text: string, locale: Locale): RewriteStageResult {
-  const sections = new Map<Section, string[]>();
+export function structureText(
+  text: string,
+  locale: Locale,
+  protectedSpans: readonly ProtectedSpan[] = []
+): RewriteStageResult {
+  const sections = new Map<Section, SectionValue[]>();
+  const codeBlockTokens = new Set(
+    protectedSpans.filter(({ category }) => category === "code_block").map(({ token }) => token)
+  );
   let activeSection: Section | undefined;
+  let previousSection: Section | undefined;
   let markerLanguage: HeadingLocale | undefined;
 
   for (const rawClause of splitClauses(text)) {
@@ -119,22 +148,25 @@ export function structureText(text: string, locale: Locale): RewriteStageResult 
       markerLanguage ??= classified.language;
       if (classified.content === undefined) {
         activeSection = classified.section;
+        previousSection = classified.section;
         continue;
       }
 
       const previousActiveSection = activeSection;
       const values = sections.get(classified.section) ?? [];
-      values.push(classified.content);
+      values.push({ content: classified.content, kind: "prose" });
       sections.set(classified.section, values);
       activeSection = previousActiveSection === classified.section ? previousActiveSection : undefined;
+      previousSection = classified.section;
       continue;
     }
 
-    const section = activeSection ?? "task";
-    const content = clause;
+    const isCodeBlock = codeBlockTokens.has(clause);
+    const section = activeSection ?? (isCodeBlock ? previousSection : undefined) ?? "task";
     const values = sections.get(section) ?? [];
-    values.push(content);
+    values.push({ content: clause, kind: isCodeBlock ? "code_block" : "prose" });
     sections.set(section, values);
+    previousSection = section;
   }
 
   if (sections.size < 2) return { text, changes: [] };
@@ -147,9 +179,7 @@ export function structureText(text: string, locale: Locale): RewriteStageResult 
     const values = sections.get(section);
     if (!values || values.length === 0) return [];
 
-    const body = isBulleted(section)
-      ? values.map((value) => `- ${value}`).join("\n")
-      : values.join(" ");
+    const body = renderSectionBody(section, values);
     return [`## ${headings[section]}\n${body}`];
   });
   const structured = blocks.join("\n\n");

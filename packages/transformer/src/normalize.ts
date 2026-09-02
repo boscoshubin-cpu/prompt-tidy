@@ -5,11 +5,32 @@ export interface RewriteStageResult {
   changes: ChangeSummary[];
 }
 
-function normalizeLine(line: string): string {
+function lineParts(line: string): { content: string; indentation: string; listItem: boolean } {
   const indentation = line.match(/^[\t ]*/u)?.[0] ?? "";
   const content = line.slice(indentation.length).replace(/[\t ]+/gu, " ").trim();
 
-  return /^(?:[-*+]|\d+[.)])(?:\s|$)/u.test(content) ? `${indentation}${content}` : content;
+  return {
+    content,
+    indentation,
+    listItem: /^(?:[-*+]|\d+[.)])(?:\s|$)/u.test(content)
+  };
+}
+
+function normalizeLines(lines: readonly string[]): string[] {
+  let inList = false;
+
+  return lines.map((line) => {
+    const { content, indentation, listItem } = lineParts(line);
+    const continuation = inList && indentation !== "" && content !== "";
+
+    if (listItem) {
+      inList = true;
+    } else if (content !== "" && indentation === "") {
+      inList = false;
+    }
+
+    return listItem || continuation ? `${indentation}${content}` : content;
+  });
 }
 
 /**
@@ -18,10 +39,9 @@ function normalizeLine(line: string): string {
  * reduced to a single blank line.
  */
 export function normalizeText(text: string): RewriteStageResult {
-  const normalized = text
+  const normalized = normalizeLines(text
     .replace(/\r\n?/gu, "\n")
-    .split("\n")
-    .map(normalizeLine)
+    .split("\n"))
     .join("\n")
     .replace(/\n{3,}/gu, "\n\n");
 

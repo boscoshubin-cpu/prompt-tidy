@@ -29,6 +29,11 @@ export function assertOnlyInitialFixtureNavigation(
   requests: readonly RequestEvidence[],
   fixtureUrl: string
 ): void {
+  const initialRequest = requests.find(({ url }) => isApplicationNetworkUrl(url));
+  if (!initialRequest) {
+    throw new Error("Missing initial fixture navigation evidence.");
+  }
+
   const unexpected = unexpectedApplicationRequests(requests, fixtureUrl);
   if (unexpected.length > 0) {
     throw new Error(`Unexpected application request(s): ${JSON.stringify(unexpected)}`);

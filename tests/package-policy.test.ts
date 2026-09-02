@@ -201,9 +201,11 @@ describe("package policy", () => {
     "window.Function('return 1')",
     "new globalThis.Function('return 1')",
     "globalThis.Function('return 1')",
+    "globalThis?.Function('return 1')",
     "globalThis[\"Function\"]('return 1')",
     "window /* audit */ ['Function']('return 1')",
     "setTimeout('globalThis.compromised = true', 0)",
+    "setTimeout?.('globalThis.compromised = true', 0)",
     'setTimeout("globalThis.compromised = true", 0)',
     "setTimeout(`globalThis.compromised = true`, 0)",
     "setInterval('globalThis.compromised = true', 0)",
@@ -251,6 +253,14 @@ describe("package policy", () => {
     [
       "escaped backtick before bracket Function call",
       'const audit = `escaped \\` quasi ${globalThis["Function"]("return 1")}`;'
+    ],
+    [
+      "optional-chain Function call",
+      'const audit = `result: ${globalThis?.Function("return 1")}`;'
+    ],
+    [
+      "optional-chain string timer call",
+      'const audit = `result: ${setTimeout?.("globalThis.compromised = true", 0)}`;'
     ]
   ])("rejects a packaged %s inside template interpolation", async (_label, contents) => {
     const packageRoot = await makePackageManifest({}, { "content.js": contents });
@@ -272,6 +282,10 @@ describe("package policy", () => {
     [
       "string value inside interpolation",
       'const note = `${"Function(\\"return 1\\")"}`;'
+    ],
+    [
+      "optional-chain execution text in an ordinary quasi",
+      "const note = `globalThis?.Function('return 1') and setTimeout?.('globalThis.compromised = true', 0)`;"
     ]
   ])("allows non-executable Function text in template literal %s", async (_label, contents) => {
     const packageRoot = await makePackageManifest({}, { "content.js": contents });

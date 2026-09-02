@@ -104,6 +104,47 @@ function rawDottedAtomMultiset(text: string): Map<string, number> {
   return values;
 }
 
+function rawLineFenceMultiset(text: string): Map<string, number> {
+  const values = new Map<string, number>();
+  const linePattern = /[^\r\n]*(?:\r\n|\r|\n|$)/gu;
+  let opening: { character: string; length: number; start: number } | undefined;
+
+  for (const line of text.matchAll(linePattern)) {
+    if (line[0] === "") continue;
+    const content = line[0].replace(/(?:\r\n|\r|\n)$/u, "");
+    const boundary = content.match(/^( {0,3})(`{3,}|~{3,})(.*)$/u);
+    if (!boundary?.[2]) continue;
+
+    const marker = boundary[2];
+    const markerCharacter = marker[0];
+    if (!markerCharacter) continue;
+
+    if (!opening) {
+      opening = {
+        character: markerCharacter,
+        length: marker.length,
+        start: line.index ?? 0
+      };
+      continue;
+    }
+
+    if (
+      markerCharacter !== opening.character
+      || marker.length < opening.length
+      || !/^[ \t]*$/u.test(boundary[3] ?? "")
+    ) {
+      continue;
+    }
+
+    const end = (line.index ?? 0) + content.length;
+    const value = text.slice(opening.start, end);
+    values.set(value, (values.get(value) ?? 0) + 1);
+    opening = undefined;
+  }
+
+  return values;
+}
+
 function differs(expected: ReadonlyMap<string, number>, actual: ReadonlyMap<string, number>): boolean {
   const values = new Set([...expected.keys(), ...actual.keys()]);
 
@@ -136,6 +177,10 @@ function changedCategories(
 
   if (differs(rawDottedAtomMultiset(original), rawDottedAtomMultiset(output))) {
     changed.add("dotted_atom");
+  }
+
+  if (differs(rawLineFenceMultiset(original), rawLineFenceMultiset(output))) {
+    changed.add("code_block");
   }
 
   if (differs(negationMultiset(original), negationMultiset(output))) {
