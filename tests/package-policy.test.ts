@@ -311,6 +311,62 @@ describe("package policy", () => {
     await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
   });
 
+  it.each([
+    [
+      "member keyword",
+      'const obj = { return: 2 }; const audit = `result: ${obj.return / 2 + Function("return 1")}`;'
+    ],
+    [
+      "optional-chain member keyword",
+      'const obj = { return: 2 }; const audit = `result: ${obj?.return / 2 + Function("return 1")}`;'
+    ]
+  ])("rejects Function after division by a %s", async (_label, contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
+  it.each([
+    [
+      "member keyword division",
+      'const obj = { return: 2 }; const audit = `result: ${obj.return / 2}`;'
+    ],
+    [
+      "optional-chain member keyword division",
+      'const obj = { return: 2 }; const audit = `result: ${obj?.return / 2}`;'
+    ],
+    [
+      "true return regex",
+      'function matches(source) { return /setTimeout("x")/.test(source); }'
+    ]
+  ])("allows safe %s", async (_label, contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
+  });
+
+  it("keeps code after a true return regex executable to the audit", async () => {
+    const contents = 'function audit(source) { return /x/.test(source) && Function("return 1"); }';
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
+  it.each([
+    ["newline", 'const audit = /unterminated Function("return 1")\nconst safe = 1;'],
+    ["end of file", 'const audit = /unterminated Function("return 1")']
+  ])("does not hide executable text after an unclosed suspected regex at %s", async (_label, contents) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
   it("rejects an externally connectable manifest surface", async () => {
     const packageRoot = await makePackageManifest({
       externally_connectable: { matches: ["https://example.com/*"] }

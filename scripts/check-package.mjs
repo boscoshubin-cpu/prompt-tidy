@@ -142,10 +142,14 @@ function declarationSourceView(source) {
     "void",
     "yield"
   ]);
-  const contexts = [{ kind: "code", canStartRegex: true }];
+  const contexts = [{ kind: "code", canStartRegex: true, memberNameExpected: false }];
   const maskedCharacter = (character) => (
     character === "\n" || character === "\r" ? character : " "
   );
+  const revealSuspectedRegex = (context, end) => {
+    view = `${view.slice(0, context.start)}${source.slice(context.start, end)}`;
+    contexts.pop();
+  };
 
   while (index < source.length) {
     const character = source[index];
@@ -153,7 +157,15 @@ function declarationSourceView(source) {
     const context = contexts.at(-1);
 
     if (context?.kind === "regex") {
+      if (character === "\n" || character === "\r") {
+        revealSuspectedRegex(context, index);
+        continue;
+      }
       if (character === "\\") {
+        if (next === "\n" || next === "\r") {
+          revealSuspectedRegex(context, index);
+          continue;
+        }
         view += maskedCharacter(character);
         index += 1;
         if (index < source.length) {
@@ -210,7 +222,12 @@ function declarationSourceView(source) {
       }
       if (character === "$" && next === "{") {
         view += "  ";
-        contexts.push({ kind: "interpolation", braceDepth: 0, canStartRegex: true });
+        contexts.push({
+          kind: "interpolation",
+          braceDepth: 0,
+          canStartRegex: true,
+          memberNameExpected: false
+        });
         index += 2;
         continue;
       }
@@ -220,7 +237,10 @@ function declarationSourceView(source) {
     }
 
     if (character === "'" || character === '"') {
-      if (context) context.canStartRegex = false;
+      if (context) {
+        context.canStartRegex = false;
+        context.memberNameExpected = false;
+      }
       contexts.push({ kind: "string", delimiter: character });
       view += " ";
       index += 1;
@@ -228,7 +248,10 @@ function declarationSourceView(source) {
     }
 
     if (character === "`") {
-      if (context) context.canStartRegex = false;
+      if (context) {
+        context.canStartRegex = false;
+        context.memberNameExpected = false;
+      }
       contexts.push({ kind: "template" });
       view += " ";
       index += 1;
@@ -260,7 +283,8 @@ function declarationSourceView(source) {
 
     if (character === "/" && context?.canStartRegex) {
       context.canStartRegex = false;
-      contexts.push({ kind: "regex", inCharacterClass: false });
+      context.memberNameExpected = false;
+      contexts.push({ kind: "regex", inCharacterClass: false, start: index });
       view += " ";
       index += 1;
       continue;
@@ -269,7 +293,8 @@ function declarationSourceView(source) {
     const identifier = /^[$\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*/u.exec(source.slice(index))?.[0];
     if (identifier) {
       view += identifier;
-      context.canStartRegex = regexPrefixKeywords.has(identifier);
+      context.canStartRegex = !context.memberNameExpected && regexPrefixKeywords.has(identifier);
+      context.memberNameExpected = false;
       index += identifier.length;
       continue;
     }
@@ -289,6 +314,7 @@ function declarationSourceView(source) {
     }
 
     if ((character === "+" || character === "-") && next === character) {
+      context.memberNameExpected = false;
       view += `${character}${next}`;
       index += 2;
       continue;
@@ -296,6 +322,7 @@ function declarationSourceView(source) {
 
     if (character === "?" && next === ".") {
       context.canStartRegex = false;
+      context.memberNameExpected = true;
       view += "?.";
       index += 2;
       continue;
@@ -307,6 +334,30 @@ function declarationSourceView(source) {
       continue;
     }
 
+    if (character === "." && source.slice(index, index + 3) === "...") {
+      context.canStartRegex = true;
+      context.memberNameExpected = false;
+      view += "...";
+      index += 3;
+      continue;
+    }
+
+    if (character === ".") {
+      context.canStartRegex = false;
+      context.memberNameExpected = true;
+      view += character;
+      index += 1;
+      continue;
+    }
+
+    if (character === "#" && context.memberNameExpected) {
+      view += character;
+      index += 1;
+      continue;
+    }
+
+    context.memberNameExpected = false;
+
     if (/[([{:;,=!?&|+\-*%^~<>]/u.test(character ?? "")) {
       context.canStartRegex = true;
     } else if (character === "/") {
@@ -317,6 +368,11 @@ function declarationSourceView(source) {
 
     view += character;
     index += 1;
+  }
+
+  const unfinishedRegex = contexts.at(-1);
+  if (unfinishedRegex?.kind === "regex") {
+    view = `${view.slice(0, unfinishedRegex.start)}${source.slice(unfinishedRegex.start)}`;
   }
 
   return view;
