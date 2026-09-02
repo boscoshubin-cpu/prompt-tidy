@@ -126,7 +126,23 @@ function sourceViews(source) {
 function declarationSourceView(source) {
   let view = "";
   let index = 0;
-  const contexts = [{ kind: "code" }];
+  const regexPrefixKeywords = new Set([
+    "await",
+    "case",
+    "delete",
+    "do",
+    "else",
+    "in",
+    "instanceof",
+    "new",
+    "of",
+    "return",
+    "throw",
+    "typeof",
+    "void",
+    "yield"
+  ]);
+  const contexts = [{ kind: "code", canStartRegex: true }];
   const maskedCharacter = (character) => (
     character === "\n" || character === "\r" ? character : " "
   );
@@ -135,6 +151,30 @@ function declarationSourceView(source) {
     const character = source[index];
     const next = source[index + 1];
     const context = contexts.at(-1);
+
+    if (context?.kind === "regex") {
+      if (character === "\\") {
+        view += maskedCharacter(character);
+        index += 1;
+        if (index < source.length) {
+          view += maskedCharacter(source[index]);
+          index += 1;
+        }
+        continue;
+      }
+      if (character === "[") context.inCharacterClass = true;
+      if (character === "]") context.inCharacterClass = false;
+      view += maskedCharacter(character);
+      index += 1;
+      if (character === "/" && !context.inCharacterClass) {
+        contexts.pop();
+        while (/[a-z]/iu.test(source[index] ?? "")) {
+          view += " ";
+          index += 1;
+        }
+      }
+      continue;
+    }
 
     if (context?.kind === "string") {
       if (character === "\\") {
@@ -170,7 +210,7 @@ function declarationSourceView(source) {
       }
       if (character === "$" && next === "{") {
         view += "  ";
-        contexts.push({ kind: "interpolation", braceDepth: 0 });
+        contexts.push({ kind: "interpolation", braceDepth: 0, canStartRegex: true });
         index += 2;
         continue;
       }
@@ -180,6 +220,7 @@ function declarationSourceView(source) {
     }
 
     if (character === "'" || character === '"') {
+      if (context) context.canStartRegex = false;
       contexts.push({ kind: "string", delimiter: character });
       view += " ";
       index += 1;
@@ -187,6 +228,7 @@ function declarationSourceView(source) {
     }
 
     if (character === "`") {
+      if (context) context.canStartRegex = false;
       contexts.push({ kind: "template" });
       view += " ";
       index += 1;
@@ -216,6 +258,22 @@ function declarationSourceView(source) {
       continue;
     }
 
+    if (character === "/" && context?.canStartRegex) {
+      context.canStartRegex = false;
+      contexts.push({ kind: "regex", inCharacterClass: false });
+      view += " ";
+      index += 1;
+      continue;
+    }
+
+    const identifier = /^[$\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*/u.exec(source.slice(index))?.[0];
+    if (identifier) {
+      view += identifier;
+      context.canStartRegex = regexPrefixKeywords.has(identifier);
+      index += identifier.length;
+      continue;
+    }
+
     if (context?.kind === "interpolation") {
       if (character === "{") {
         context.braceDepth += 1;
@@ -228,6 +286,33 @@ function declarationSourceView(source) {
         }
         context.braceDepth -= 1;
       }
+    }
+
+    if ((character === "+" || character === "-") && next === character) {
+      view += `${character}${next}`;
+      index += 2;
+      continue;
+    }
+
+    if (character === "?" && next === ".") {
+      context.canStartRegex = false;
+      view += "?.";
+      index += 2;
+      continue;
+    }
+
+    if (/\s/u.test(character ?? "")) {
+      view += character;
+      index += 1;
+      continue;
+    }
+
+    if (/[([{:;,=!?&|+\-*%^~<>]/u.test(character ?? "")) {
+      context.canStartRegex = true;
+    } else if (character === "/") {
+      context.canStartRegex = true;
+    } else {
+      context.canStartRegex = false;
     }
 
     view += character;

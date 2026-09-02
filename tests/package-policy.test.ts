@@ -279,6 +279,38 @@ describe("package policy", () => {
     await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
   });
 
+  it("rejects Function after a regex close brace inside template interpolation", async () => {
+    const contents = 'const audit = `result: ${/\\}/.test("}") && Function("return 1")}`;';
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
+  it("allows timer-like text inside a regex literal in template interpolation", async () => {
+    const contents = 'const audit = `result: ${/setTimeout("x")/.test(source)}`;';
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
+  });
+
+  it("keeps division executable when auditing template interpolation", async () => {
+    const contents = "const audit = `result: ${total / count + Function('return 1')}`;";
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining("execution surface")
+    });
+  });
+
+  it("allows timer-like text inside a template interpolation comment", async () => {
+    const contents = 'const audit = `result: ${/* /setTimeout("x")/ */ 1}`;';
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).resolves.toBeUndefined();
+  });
+
   it("rejects an externally connectable manifest surface", async () => {
     const packageRoot = await makePackageManifest({
       externally_connectable: { matches: ["https://example.com/*"] }

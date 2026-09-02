@@ -139,6 +139,32 @@ describe("transform", () => {
     }
   );
 
+  it.each(["compact", "structured"] as const)(
+    "preserves consecutive closed fences after embedded triple backticks in %s mode",
+    (mode) => {
+      const marker = "```";
+      const tildeBlock = [
+        "~~~js",
+        `const marker = "${marker}";`,
+        "~~~"
+      ].join("\n");
+      const backtickBlock = [
+        `${marker}js`,
+        "const x =  1;",
+        marker
+      ].join("\n");
+      const result = transform(
+        `Task: Review these blocks.\n${tildeBlock}\n${backtickBlock}`,
+        { mode, locale: "en" }
+      );
+
+      expect(result.output).toContain(tildeBlock);
+      expect(result.output).toContain(backtickBlock);
+      expect(result.safeToReplace).toBe(true);
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ severity: "error" }));
+    }
+  );
+
   it("preserves Markdown-indented code byte-for-byte through the public API", () => {
     const input = [
       "Review this code:",

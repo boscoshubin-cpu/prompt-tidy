@@ -138,6 +138,29 @@ describe("protected spans", () => {
     expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
   });
 
+  it("protects consecutive tilde and backtick fences after triple backticks in the tilde body", () => {
+    const marker = "```";
+    const tildeBlock = [
+      "~~~js",
+      `const marker = "${marker}";`,
+      "~~~"
+    ].join("\n");
+    const backtickBlock = [
+      `${marker}js`,
+      "const x =  1;",
+      marker
+    ].join("\n");
+    const input = `${tildeBlock}\n${backtickBlock}`;
+    const protectedDoc = protectSpans(input);
+
+    expect(protectedDoc.spans.filter(({ category }) => category === "code_block").map(({ value }) => value)).toEqual([
+      tildeBlock,
+      backtickBlock
+    ]);
+    expect(protectedDoc.issues).toEqual([]);
+    expect(restoreSpans(protectedDoc.text, protectedDoc.spans)).toBe(input);
+  });
+
   it.each([
     ["double", "Review ``const x =  1`` exactly.", "``const x =  1``"],
     ["four", "Review ````const x = ```value```  +  1```` exactly.", "````const x = ```value```  +  1````"]

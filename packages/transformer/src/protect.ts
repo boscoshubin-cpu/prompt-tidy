@@ -183,7 +183,10 @@ function findMarkdownFenceCandidates(
     const start = opening.index ?? 0;
     if (start < protectedThrough) continue;
     const existingRange = rangeContaining(start, existingRanges);
-    if (existingRange && existingRange.start < start) continue;
+    const legacyStartsInsideEarlierFence = existingRange
+      ? rangeContaining(existingRange.start, blockedRanges)
+      : undefined;
+    if (existingRange && existingRange.start < start && !legacyStartsInsideEarlierFence) continue;
 
     const marker = opening[2];
     if (!marker) continue;
