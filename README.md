@@ -110,11 +110,12 @@ A passing check prints `Prompt Tidy package policy: PASS`. The static gate check
 | --- | --- |
 | Supported origin | `https://chatgpt.com/` |
 | Adapter version | `1` |
-| Check date | 2026-08-29 |
+| Check date | 2026-09-03 |
+| Packaged extension E2E | PASS — 6/6 scenarios |
 | Live ChatGPT smoke | BLOCKED — not run |
-| Chrome version | Unavailable — no compatible Chromium/Chrome executable was installed |
+| Test browser | Chrome for Testing 151.0.7922.34 (arm64) |
 
-This metadata does not claim live compatibility. A release candidate remains unverified until the eight-item live smoke test passes in a compatible Chrome version.
+This metadata does not claim live ChatGPT compatibility. The packaged extension passed the controlled local fixture and privacy E2E suite; a release candidate remains live-unverified until the eight-item ChatGPT smoke test passes.
 
 ## Contributing
 
