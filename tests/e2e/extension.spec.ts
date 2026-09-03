@@ -27,7 +27,7 @@ test("tidies a draft in the packaged extension without sending it", async ({ pag
   await page.getByRole("button", { name: "整理" }).click();
   const preview = page.getByRole("dialog", { name: "整理预览" });
   await preview.getByRole("radio", { name: "Structured" }).check();
-  await expect(preview.getByRole("region", { name: "整理结果" })).toHaveText(structuredResult);
+  await expect(preview.getByRole("region", { name: "整理结果" }).locator("pre")).toHaveText(structuredResult);
 
   await preview.getByRole("button", { name: "替换到输入框" }).click();
   await expect(composer).toHaveText(structuredResult);
