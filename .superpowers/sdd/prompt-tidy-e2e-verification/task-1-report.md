@@ -26,8 +26,8 @@ The failure was caused by asserting the entire region, which includes its `h3` h
 
 ## Verification commands and results
 
-- Focused formerly failing E2E after the repair: **1 passed**.
-- All packaged E2E tests (`tests/e2e` plus `tests/privacy/no-network.spec.ts`): **6 passed**.
+- `npx playwright test tests/e2e/extension.spec.ts -g "tidies a draft in the packaged extension"`: **1 passed**.
+- `npx playwright test tests/e2e tests/privacy/no-network.spec.ts`: **6 passed**.
 - `npm test`: **21 test files passed, 272 tests passed**.
 - `npm run typecheck`: **passed**.
 - `npm run check:package`: **passed** (`Prompt Tidy package policy: PASS`).
