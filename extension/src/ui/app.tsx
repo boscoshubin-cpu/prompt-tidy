@@ -60,8 +60,13 @@ export function App({
 
   useEffect(() => {
     const updateAvailability = (): void => setCanTidy(hasDraft(adapter, composer));
+    const draftObserver = new MutationObserver(updateAvailability);
     composer.addEventListener("input", updateAvailability);
-    return () => composer.removeEventListener("input", updateAvailability);
+    draftObserver.observe(composer, { childList: true, characterData: true, subtree: true });
+    return () => {
+      composer.removeEventListener("input", updateAvailability);
+      draftObserver.disconnect();
+    };
   }, [adapter, composer]);
 
   const tidy = async (): Promise<void> => {

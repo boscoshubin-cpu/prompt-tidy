@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ReplacementError, type ComposerAdapter } from "../chatgpt/adapter";
+import { chatGptAdapter, ReplacementError, type ComposerAdapter } from "../chatgpt/adapter";
 import type { ModeStore } from "../settings/mode-store";
 import { transform } from "@prompt-tidy/transformer";
 import { App } from "./app";
@@ -72,6 +72,31 @@ describe("App", () => {
     expect(readDraft).toHaveBeenCalledTimes(1);
     expect(adapter.replaceDraft).not.toHaveBeenCalled();
     expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it("disables 整理 when a contenteditable draft becomes empty without an input event", async () => {
+    const composer = document.createElement("div");
+    composer.contentEditable = "true";
+    composer.innerHTML = "<p>Draft</p>";
+    document.body.append(composer);
+    const modeStore: ModeStore = {
+      get: vi.fn().mockResolvedValue("compact"),
+      set: vi.fn()
+    };
+
+    const { container } = render(
+      <App adapter={chatGptAdapter} composer={composer} modeStore={modeStore} />
+    );
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    expect(button.disabled).toBe(false);
+
+    composer.innerHTML = [
+      '<p dir="auto" data-empty-paragraph="true" data-placeholder="问问 ChatGPT" class="placeholder">',
+      '<br class="ProseMirror-trailingBreak">',
+      "</p>"
+    ].join("");
+
+    await vi.waitFor(() => expect(button.disabled).toBe(true));
   });
 
   it("recomputes a mode switch from the unchanged original draft and stores only the mode", async () => {
