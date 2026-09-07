@@ -457,9 +457,22 @@ function findCandidates(input: string): CandidateScan {
     if (!overlaps) selected.push(candidate);
   }
 
+  const hasAmbiguousWhitespacePath = selected.some((candidate) => (
+    candidate.category === "path"
+    && /^[\t ]{2,}\S/u.test(input.slice(candidate.end))
+  ));
+
   return {
     candidates: selected,
-    issues: [...fenced.issues, ...legacyTriple.issues, ...indented.issues, ...inline.issues],
+    issues: [
+      ...fenced.issues,
+      ...legacyTriple.issues,
+      ...indented.issues,
+      ...inline.issues,
+      ...(hasAmbiguousWhitespacePath
+        ? [{ category: "path" as const, reason: "ambiguous_syntax" as const }]
+        : [])
+    ],
     blockedRanges: [...codeBlockRanges, ...inline.blockedRanges]
   };
 }

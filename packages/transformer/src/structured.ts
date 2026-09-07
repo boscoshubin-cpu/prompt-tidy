@@ -13,7 +13,7 @@ interface Marker {
 
 interface SectionValue {
   content: string;
-  kind: "code_block" | "prose";
+  kind: "code_block" | "list_item" | "prose";
 }
 
 const SECTION_ORDER: readonly Section[] = [
@@ -72,6 +72,12 @@ function trimClause(clause: string): string {
   return clause.replace(/^\s+|\s+$/gu, "");
 }
 
+function markdownListItem(clause: string): string | undefined {
+  const match = clause.trimEnd().match(/^([\t ]*)([-*+]|\d+[.)])[\t ]+(.+)$/u);
+  if (!match?.[2] || !match[3]) return undefined;
+  return `${match[1] ?? ""}${match[2]} ${match[3]}`;
+}
+
 function markersFor(locale: Locale): readonly Marker[] {
   if (locale === "zh") return ZH_MARKERS;
   if (locale === "en") return EN_MARKERS;
@@ -109,14 +115,14 @@ function isBulleted(section: Section): boolean {
 function renderSectionBody(section: Section, values: readonly SectionValue[]): string {
   if (isBulleted(section)) {
     return values
-      .map((value) => value.kind === "code_block" ? value.content : `- ${value.content}`)
+      .map((value) => value.kind === "prose" ? `- ${value.content}` : value.content)
       .join("\n");
   }
 
   return values.reduce((body, value, index) => {
     if (index === 0) return value.content;
     const previous = values[index - 1];
-    const separator = value.kind === "code_block" || previous?.kind === "code_block" ? "\n" : " ";
+    const separator = value.kind !== "prose" || previous?.kind !== "prose" ? "\n" : " ";
     return `${body}${separator}${value.content}`;
   }, "");
 }
@@ -142,6 +148,16 @@ export function structureText(
   for (const rawClause of splitClauses(text)) {
     const clause = trimClause(rawClause);
     if (clause === "") continue;
+
+    const listItem = markdownListItem(rawClause);
+    if (listItem) {
+      const section = activeSection ?? "task";
+      const values = sections.get(section) ?? [];
+      values.push({ content: listItem, kind: "list_item" });
+      sections.set(section, values);
+      previousSection = section;
+      continue;
+    }
 
     const classified = classifyClause(clause, locale);
     if (classified) {

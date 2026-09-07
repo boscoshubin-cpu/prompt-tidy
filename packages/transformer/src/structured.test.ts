@@ -82,6 +82,26 @@ describe("structured mode", () => {
     ].join("\n"));
   });
 
+  it("preserves Markdown list markers and nested indentation in an explicit section", () => {
+    const input = [
+      "Requirements:",
+      "- Parent",
+      "  - Child",
+      "Audience: Maintainers."
+    ].join("\n");
+    const result = transform(input, { mode: "structured", locale: "en" });
+
+    expect(result.output).toBe([
+      "## Audience",
+      "Maintainers.",
+      "",
+      "## Requirements",
+      "- Parent",
+      "  - Child"
+    ].join("\n"));
+    expect(result.safeToReplace).toBe(true);
+  });
+
   it("keeps a standalone Chinese header active for non-Must requirement lines", () => {
     expect(
       transform("要求：\n使用通俗语言。\n受众：\n大学生。", {

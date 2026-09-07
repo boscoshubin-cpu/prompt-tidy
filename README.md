@@ -6,7 +6,7 @@ Prompt Tidy is an open-source Chrome extension that tidies a draft in the ChatGP
 
 ## Install locally as an unpacked extension
 
-Requirements: Node.js 22 or later and a Chromium-based browser that supports Manifest V3 extensions.
+Requirements: Node.js 22.13 or later and a Chromium-based browser that supports Manifest V3 extensions.
 
 1. Clone or download this repository.
 2. From the repository root, run `npm ci` and then `npm run build`.
@@ -102,7 +102,7 @@ Build the production extension and enforce the manifest, permission, asset, and 
 npm run check:package
 ```
 
-A passing check prints `Prompt Tidy package policy: PASS`. The static gate checks the exact manifest/permission boundary, rejects unexpected manifest execution surfaces and common network or dynamic-execution APIs, and scans every packaged HTML, JavaScript, CSS, and JSON asset for literal, WebSocket, protocol-relative, common concatenated, escaped, percent-encoded, and base64-prefixed remote references. Only the exact W3C namespace identifiers required by the UI bundle and the required ChatGPT manifest match are allowed. This is a bounded static audit, not proof against every possible obfuscation technique. Distribute the contents of `extension/dist` without adding remote code or widening host permissions.
+A passing check prints `Prompt Tidy package policy: PASS`. The static gate checks the exact manifest/permission boundary, rejects unexpected manifest execution surfaces and common network or dynamic-execution APIs, including computed access to dangerous global APIs, and scans every packaged HTML, JavaScript, CSS, and JSON asset for literal, WebSocket, protocol-relative, common concatenated, escaped, percent-encoded, and base64-prefixed remote references. Only the exact W3C namespace identifiers required by the UI bundle and the required ChatGPT manifest match are allowed. This is a bounded static audit, not proof against every possible obfuscation technique. Distribute the contents of `extension/dist` without adding remote code or widening host permissions.
 
 ## Compatibility
 
@@ -110,12 +110,12 @@ A passing check prints `Prompt Tidy package policy: PASS`. The static gate check
 | --- | --- |
 | Supported origin | `https://chatgpt.com/` |
 | Adapter version | `1` |
-| Check date | 2026-09-03 |
+| Check date | 2026-09-07 |
 | Packaged extension E2E | PASS — 6/6 scenarios |
-| Live ChatGPT smoke | BLOCKED — not run |
-| Test browser | Chrome for Testing 151.0.7922.34 (arm64) |
+| Live ChatGPT smoke | PARTIAL — composer flow passed; popup status pending |
+| Test browser | Google Chrome 152.0.7977.76 (macOS) |
 
-This metadata does not claim live ChatGPT compatibility. The packaged extension passed the controlled local fixture and privacy E2E suite; a release candidate remains live-unverified until the eight-item ChatGPT smoke test passes.
+The packaged extension passed the controlled local fixture and privacy E2E suite. The live composer flow was verified without sending a message, but a release candidate remains only partially live-verified until the extension popup status and the complete eight-item smoke checklist pass in one recorded run.
 
 ## Contributing
 

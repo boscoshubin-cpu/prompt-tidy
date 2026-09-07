@@ -75,6 +75,21 @@ describe("transform", () => {
     expect(result.safeToReplace).toBe(true);
   });
 
+  it.each(["compact", "structured"] as const)(
+    "fails closed in %s mode when an unquoted path contains repeated spaces",
+    (mode) => {
+      const input = "Could you please review /Users/me/My  File.txt.";
+      const result = transform(input, { mode, locale: "en" });
+
+      expect(result.output).toBe(input);
+      expect(result.safeToReplace).toBe(false);
+      expect(result.warnings).toContainEqual(expect.objectContaining({
+        category: "path",
+        severity: "error"
+      }));
+    }
+  );
+
   it.each([
     ["Please review ``const x =  1`` exactly.", "Review ``const x =  1`` exactly."],
     [

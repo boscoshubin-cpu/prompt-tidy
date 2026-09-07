@@ -57,6 +57,8 @@ const executionSurfacePatterns = [
   /\bjavascript\s*:/iu,
   /\bdata\s*:\s*text\/javascript/iu
 ];
+const computedGlobalNetworkSurfacePattern = /\b(?:window|globalThis)\s*\[\s*(["'`])(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\1\s*\]/u;
+const computedGlobalExecutionSurfacePattern = /\b(?:window|globalThis)\s*\[\s*(["'`])(?:eval|Function)\1\s*\]/u;
 const functionConstructionPattern = /(?<![\p{L}\p{N}_$.])(?:new\s+)?(?:(?:window|globalThis)\s*(?:\.|\?\.)\s*)?Function\s*\(/gu;
 const bracketFunctionConstructionPattern = /(?<![\p{L}\p{N}_$])(?:new(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))+)?(?:window|globalThis)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\[(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(["'`])Function\1(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\](?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\(/gu;
 const timerStringExecutionPattern = /\bset(?:Timeout|Interval)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:\?\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)?\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:(["'])[^]*?\1|`[^]*?`)/gu;
@@ -121,6 +123,10 @@ function sourceViews(source) {
     collapseStaticStringConcatenations(source),
     collapseStaticStringConcatenations(decoded)
   ]);
+}
+
+function hasComputedGlobalSurface(source, pattern) {
+  return [...sourceViews(source)].some((view) => pattern.test(view));
 }
 
 function declarationSourceView(source) {
@@ -456,7 +462,10 @@ function verifyAssetSource(path, source) {
     fail(`remote reference found in ${displayPath}: ${unexpectedReference}`);
   }
 
-  if (networkSurfacePatterns.some((pattern) => pattern.test(source))) {
+  if (
+    networkSurfacePatterns.some((pattern) => pattern.test(source))
+    || hasComputedGlobalSurface(source, computedGlobalNetworkSurfacePattern)
+  ) {
     fail(`unexpected network surface found in ${displayPath}`);
   }
 
@@ -464,6 +473,7 @@ function verifyAssetSource(path, source) {
     hasFunctionConstructionSurface(source)
     || hasBracketFunctionConstructionSurface(source)
     || hasTimerStringExecutionSurface(source)
+    || hasComputedGlobalSurface(source, computedGlobalExecutionSurfacePattern)
     || executionSurfacePatterns.some((pattern) => pattern.test(source))
   ) {
     fail(`unexpected execution surface found in ${displayPath}`);

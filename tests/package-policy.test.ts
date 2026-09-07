@@ -189,6 +189,25 @@ describe("package policy", () => {
   });
 
   it.each([
+    [
+      "computed global fetch alias",
+      'const send = globalThis["fe" + "tch"]; send("/collect")',
+      "network surface"
+    ],
+    [
+      "computed global eval alias",
+      'const execute = globalThis["e" + "val"]; execute("1 + 1")',
+      "execution surface"
+    ]
+  ])("rejects a packaged %s", async (_label, contents, message) => {
+    const packageRoot = await makePackageManifest({}, { "content.js": contents });
+
+    await expect(runPackageChecker(packageRoot)).rejects.toMatchObject({
+      stderr: expect.stringContaining(message)
+    });
+  });
+
+  it.each([
     "new Function('return 1')",
     "Function('return 1')",
     "Function/* audit */('return 1')",
