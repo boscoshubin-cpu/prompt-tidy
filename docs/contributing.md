@@ -4,7 +4,7 @@ Prompt Tidy favors small, auditable changes that preserve user intent and keep p
 
 ## Set up
 
-Use Node.js 22.13 or later. From the repository root:
+Use Node.js 22.22.2+ (or 24.15+ / 26+). From the repository root:
 
 ```bash
 npm ci
