@@ -6,7 +6,7 @@ Prompt Tidy is an open-source Chrome extension that tidies a draft in the ChatGP
 
 ## Install locally as an unpacked extension
 
-Requirements: Node.js 22.13 or later and a Chromium-based browser that supports Manifest V3 extensions.
+Requirements: Node.js 22.22.2+ (or 24.15+ / 26+; required by jsdom 30 for tests) and a Chromium-based browser that supports Manifest V3 extensions.
 
 1. Clone or download this repository.
 2. From the repository root, run `npm ci` and then `npm run build`.
